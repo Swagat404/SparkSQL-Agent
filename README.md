@@ -103,6 +103,139 @@ The agent architecture follows these key principles:
 4. **Error Recovery**: Sequential recovery pipeline for handling errors
 5. **Memory System**: Tracking context across multiple transformation steps
 
+### System Architecture
+
+The Spark PostgreSQL Agent is structured in multiple layers:
+
+```
++--------------------------------------------------------------+
+|                 Spark PostgreSQL Agent Architecture           |
++--------------------------------------------------------------+
+                            |
+              +-------------v------------+    +----------------+
+              |    Interface Layer       |<-->|   CLI Module   |
+              +-------------------------+     +----------------+
+                          |
++--------------------------------------------------------------+
+|                       Core Layer                              |
+|                                                               |
+|   +-------------------+        +---------------------+        |
+|   |TransformationAgent|<------>|    AgentMemory      |        |
+|   +-------------------+        +---------------------+        |
+|       |       |       |                                       |
+|       |       |       v                                       |
+|       |       |  +------------+                               |
+|       |       |  |SchemaMemory|                               |
+|       |       |  +------------+                               |
+|       |       |       ^                                       |
+|       |       v       |                                       |
+|       |  +------------+                                       |
+|       |  |DatabaseMgr |                                       |
+|       |  +------------+                                       |
+|       v                                                       |
+|  +---------------------------+                                |
+|  |   MultiPhaseLLMCompiler   |                               |
+|  |---------------------------|                                |
+|  | +------------+ +--------+ |  +-----------+ +------------+ |
+|  | |schema_     | |plan_   | |  |SparkExec. | |ResultValid.| |
+|  | |analysis    | |gen     | |  +-----------+ +------------+ |
+|  | +------------+ +--------+ |                                |
+|  | +------------+ +--------+ |                                |
+|  | |code_       | |code_   | |                                |
+|  | |generation  | |review  | |                                |
+|  | +------------+ +--------+ |                                |
+|  +---------------------------+                                |
+|                                                               |
++--------------------------------------------------------------+
+                 |                         ^
+                 v                         |
++--------------------------------------------------------------+
+|                     External Systems                          |
+|  +-------------+  +-------------+  +----------------------+   |
+|  |  PostgreSQL |  | Spark       |  | LLM Services         |   |
+|  |  Database   |  | Cluster     |  | (OpenAI, Anthropic)  |   |
+|  +-------------+  +-------------+  +----------------------+   |
++--------------------------------------------------------------+
+```
+
+For complete details, see the `spark_pg_agent_architecture.txt` file.
+
+### Multi-Phase Compilation and Tracing
+
+![Compilation Phases Trace](Examples/Traces/image.png)
+
+The agent uses a multi-phase compilation process, with each phase traced for debugging:
+
+1. **Schema Analysis**: Analyzes database schema to understand tables and relationships
+2. **Plan Generation**: Creates a step-by-step execution plan based on the request
+3. **Code Generation**: Transforms the plan into executable PySpark code
+4. **Code Review**: Validates the generated code for common issues
+
+#### Tracing System
+
+The tracing system captures detailed information at each phase:
+
+- **Phase Entry/Exit**: Records when each compilation phase starts and ends
+- **Intermediate Results**: Captures the output from each phase
+- **Error States**: Records any errors encountered during compilation
+- **Execution Steps**: Tracks the actual execution of the generated code
+- **Result Validation**: Records validation of the results
+
+Each trace is stored with a unique session ID, allowing for:
+- Debugging complex transformation workflows
+- Analyzing where errors occur in the compilation pipeline
+- Improving the agent's performance by identifying bottlenecks
+
+The agent uses **AgentTrace** for capturing, storing, and visualizing traces. The traces are recorded throughout the compilation and execution pipeline, with detailed timing and content information.
+
+Traces can be viewed using:
+
+```bash
+# View traces in CLI mode
+python -m spark_pg_agent_formal.cli view-traces
+
+# Start the AgentTrace dashboard for interactive exploration
+python -m spark_pg_agent_formal.cli start-dashboard
+```
+
+The **AgentTrace dashboard** provides an interactive web interface for:
+- Viewing all recorded traces in a timeline view
+- Drilling down into specific execution phases
+- Analyzing performance bottlenecks
+- Comparing successful vs. failed executions
+- Exporting traces for external analysis
+
+### Memory System
+
+The SparkSQL Agent includes a session-based memory system for maintaining context across multiple queries:
+
+#### Memory Components
+
+- **Conversation History**: Tracks the sequence of user queries and agent responses
+- **Transformation Steps**: Stores executed transformations with their code and results
+- **Entity Tracker**: Maintains relationships between entities (tables, columns) used in queries
+- **Focus Entities**: Tracks which database objects the user is currently working with
+- **Named References**: Allows referring to previous results by name or description
+
+#### Memory Features
+
+The memory system enables several key capabilities:
+
+1. **Contextual Understanding**: The agent determines when queries relate to previous results
+2. **Reference Resolution**: Understanding queries like "filter that by date" or "now show me the top 10"
+3. **Intention Recognition**: Detecting user intentions (filtering, aggregating, sorting) from context
+4. **Request Classification**: Categorizing requests as new queries, refinements, or relative references
+5. **Transformation Storage**: Indexing and retrieving previous transformation steps
+
+Each transformation is stored with:
+- The original request text
+- Generated PySpark code
+- Tables and columns accessed
+- Result summary information
+- Timestamp and step number
+
+The memory system is session-based and designed to mimic human-like contextual understanding during a single analysis session. This allows for natural conversations about data without requiring repetition of context in every query.
+
 ## Extending
 
 To add new capabilities:
