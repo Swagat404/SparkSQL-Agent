@@ -1,0 +1,78 @@
+# Dependency Diagram for compiler.py
+
+```
++------------------------------------------------------------------------------+
+|                        MultiPhaseLLMCompiler                                 |
++-----------------+------------------------------------------------------------+
+                  |
+                  | Uses
+                  v
++----------------+-----------------+          +---------------------------+
+|     External Dependencies        |          |     CompilationContext    |
+|----------------------------------|          |---------------------------|
+| - SchemaMemory                   |<---------| - user_request            |
+| - LLMProvider                    |          | - schema_memory           |
++----------------------------------+          | - postgres_config         |
+                                              | - tables_referenced       |
+                                              | - columns_referenced      |
+                                              | - phase_results           |
+                                              | - compilation_session_id  |
+                                              +---------------------------+
+                  
+Main Compilation Phases
++-------------------------------------+
+| compile() → compile_with_context()  |
++-------------------------------------+
+          |
+          +---------------------+------------------------+-------------------------+-------------------------+
+          |                     |                        |                         |                         |
+          v                     v                        v                         v                         v
++-------------------+  +------------------+  +----------------------+  +------------------------+  +--------------------+
+| schema_analysis   |  | plan_generation  |  | code_generation      |  | code_review            |  | error handling     |
+|-------------------|  |------------------|  |----------------------|  |------------------------|  |--------------------|
+| - Identify tables |  | - Create step-   |  | - Standard           |  | - Validate code        |  | - error_aware_     |
+| - Extract columns |  |   by-step plan   |  | - context_aware_     |  | - Fix common issues    |  |   code_generation  |
+| - Identify joins  |  | - SQL to PySpark |  | - refinement_        |  | - Review for issues    |  | - Track errors     |
++-------------------+  +------------------+  +----------------------+  +------------------------+  +--------------------+
+
+Code Validation & Fixing Tools
++--------------------------------------------------+
+| _validate_and_fix_code()                         |
+|--------------------------------------------------|
+| - SparkSession builder pattern fixing            |
+| - Indentation correction                         |
+| - Join conditions standardization                |
+| - Column reference qualification                 |
+| - Alias collision detection & fixing             |
++--------------------------------------------------+
+
+Context Preservation Tools
++---------------------------------------------------+
+| - _is_request_refinement()                        |
+| - _store_transformation()                         |
+| - _extract_dataframe_structure()                  |
+| - previous_transformations list                   |
++---------------------------------------------------+
+
+Utility Functions
++---------------------------------------------------+
+| - _extract_code_from_response()                   |
+| - _extract_tables_from_text()                     |
+| - _log_to_file()                                  |
++---------------------------------------------------+
+```
+
+The `MultiPhaseLLMCompiler` operates through a series of compilation phases that transform a natural language request into executable PySpark code. The core strength of the system is its multi-phase approach, with each phase building on the previous ones:
+
+1. **Schema Analysis**: Identifies relevant tables and columns needed for the transformation
+2. **Plan Generation**: Creates a step-by-step execution plan
+3. **Code Generation**: Implements the plan as PySpark code (with several variants based on context)
+4. **Code Review**: Validates the generated code and fixes common issues
+
+The compiler uses sophisticated validation tools to fix common issues with generated code, especially around:
+- Proper indentation of SparkSession builder patterns
+- Standardizing join conditions to avoid ambiguity 
+- Fixing alias collisions to prevent duplicate references
+- Converting dot notation to bracket notation for column references
+
+Recent enhancements have significantly improved error handling and context preservation between related requests.
