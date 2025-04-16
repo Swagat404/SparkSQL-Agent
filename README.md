@@ -4,7 +4,7 @@ An autonomous agent for natural language transformations on PostgreSQL databases
 
 ## Features
 
-- Transform natural language requests into executable PySpark code
+- Generate and execute PySpark code from natural language requests for data transformations.
 - Autonomous error detection and self-correction
 - Multi-phase compilation for reliable code generation
 - Interactive mode for exploration and iterative development
