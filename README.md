@@ -99,7 +99,7 @@ The agent architecture follows these key principles:
 
 1. **State Management**: Tracking the agent's state through the transformation process
 2. **Multi-phase Compilation**: Breaking down the code generation into discrete phases
-3. **Result Detection**: Intelligently identifying the result DataFrame in the executed code
+3. **Execution Management**: Handling SparkSession lifecycle, code execution, and result extraction
 4. **Error Recovery**: Sequential recovery pipeline for handling errors
 5. **Memory System**: Tracking context across multiple transformation steps
 
