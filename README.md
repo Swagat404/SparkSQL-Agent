@@ -15,7 +15,7 @@ An autonomous agent for natural language transformations on PostgreSQL databases
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/spark_pg_agent_formal.git
+git clone https://github.com/Swagat404/spark_pg_agent_formal.git
 cd spark_pg_agent_formal
 
 # Install the package
@@ -163,6 +163,7 @@ For complete details, see the `spark_pg_agent_architecture.txt` file.
 ### Multi-Phase Compilation and Tracing
 
 ![Compilation Phases Trace](spark_pg_agent_formal/Examples/Traces/image.png)
+![Compilation Phases Trace2](spark_pg_agent_formal/Examples/Traces/image copy.png)
 
 The agent uses a multi-phase compilation process, with each phase traced for debugging:
 
