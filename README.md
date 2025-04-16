@@ -160,10 +160,19 @@ The Spark PostgreSQL Agent is structured in multiple layers:
 
 For complete details, see the `spark_pg_agent_architecture.txt` file.
 
+### Code Execution
+ 1. The SparkSQL Agent includes a robust execution engine that:
+ 2. Manages SparkSession lifecycle and configuration
+ 3. Executes generated PySpark code in a controlled environment
+ 4. Intelligently identifies and extracts result DataFrames
+ 5. Handles error recovery and reporting
+ 6. Provides schema information from PostgreSQL databases
+
+
 ### Multi-Phase Compilation and Tracing
 
 ![Compilation Phases Trace](spark_pg_agent_formal/Examples/Traces/image.png)
-![Compilation Phases Trace2](spark_pg_agent_formal/Examples/Traces/image copy.png)
+![Compilation Phases Trace2](spark_pg_agent_formal/Examples/Traces/image_copy.png)
 
 The agent uses a multi-phase compilation process, with each phase traced for debugging:
 
