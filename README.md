@@ -162,7 +162,7 @@ For complete details, see the `spark_pg_agent_architecture.txt` file.
 
 ### Multi-Phase Compilation and Tracing
 
-![Compilation Phases Trace](Examples/Traces/image.png)
+![Compilation Phases Trace](spark_pg_agent_formal/Examples/Traces/image.png)
 
 The agent uses a multi-phase compilation process, with each phase traced for debugging:
 
@@ -187,6 +187,20 @@ Each trace is stored with a unique session ID, allowing for:
 - Improving the agent's performance by identifying bottlenecks
 
 The agent uses **AgentTrace** for capturing, storing, and visualizing traces. The traces are recorded throughout the compilation and execution pipeline, with detailed timing and content information.
+
+steps to use agenttrace dashboard:
+- git clone https://github.com/tensorstax/agenttrace.git
+- cd agenttrace/frontend
+- npm run install:all
+- npm run start
+- 
+This will start:
+
+The backend API server on port 3033
+The frontend web interface on port 5173
+Open your browser and go to http://localhost:5173 to access the interface.
+
+To see the example traces, set spark_pg_agent_formal/Examples/Traces/spark_pg_agent_traces.db as the database path
 
 Traces can be viewed using:
 
@@ -236,13 +250,6 @@ Each transformation is stored with:
 
 The memory system is session-based and designed to mimic human-like contextual understanding during a single analysis session. This allows for natural conversations about data without requiring repetition of context in every query.
 
-## Extending
-
-To add new capabilities:
-
-1. **Add new recovery strategies**: Extend the error recovery pipeline in the agent
-2. **Enhance schema understanding**: Improve the schema memory system
-3. **Add visualization features**: Implement new visualization capabilities for results
 
 ## License
 
