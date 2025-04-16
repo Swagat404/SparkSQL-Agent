@@ -152,8 +152,8 @@ The Spark PostgreSQL Agent is structured in multiple layers:
 +--------------------------------------------------------------+
 |                     External Systems                          |
 |  +-------------+  +-------------+  +----------------------+   |
-|  |  PostgreSQL |  | Spark       |  | LLM Services         |   |
-|  |  Database   |  | Cluster     |  | (OpenAI, Anthropic)  |   |
+|  |  PostgreSQL |  |    Spark    |  | LLM Services         |   |
+|  |  Database   |  |             |  | (OpenAI, Anthropic)  |   |
 |  +-------------+  +-------------+  +----------------------+   |
 +--------------------------------------------------------------+
 ```
