@@ -33,7 +33,7 @@ if TRACE_LOG_FILE:
 
 # Create a singleton instance of TraceManager with appropriate options
 trace_manager = TraceManager(
-    db_path="spark_pg_agent_traces.db", 
+    db_path="/Users/swagatbhowmik/CS projects/TensorStack/Github version/SparkSQL-Agent/spark_pg_agent_traces.db", 
     colored_logging=ENABLE_CONSOLE_OUTPUT  # Use colored_logging instead of console_output_enabled
 )
 

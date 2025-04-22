@@ -1,72 +1,167 @@
 # Spark PostgreSQL Agent
 
-An autonomous agent for natural language transformations on PostgreSQL databases using Apache Spark.
+An autonomous agent for natural language transformations on PostgreSQL and MySQL databases using Apache Spark.
 
 ## Features
 
-- Generate and execute PySpark code from natural language requests for data transformations.
+- Transform natural language requests into executable PySpark code
 - Autonomous error detection and self-correction
 - Multi-phase compilation for reliable code generation
 - Interactive mode for exploration and iterative development
 - Context awareness for multi-step workflows
 - Validation of transformation results
-
-## Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/Swagat404/spark_pg_agent_formal.git
-cd spark_pg_agent_formal
-
-# Install the package
-pip install -e .
-```
+- Web-based interface with user authentication
+- Multiple database support (PostgreSQL and MySQL)
+- Automatic visualization suggestions
+- Result caching for improved performance
+- Feedback collection for ongoing improvement
 
 ## Requirements
 
-- Python 3.8+
-- Apache Spark 3.1+
-- PostgreSQL server
+To run this application, you'll need:
+
+- Docker Engine - version 19.03.0 or higher
+- Docker Compose - version 1.27.0 or higher
 - OpenAI API key or Anthropic API key
 
-## Environment Setup
+## Installation
 
-Create a `.env` file with your API keys and database connection details:
+### Installing Docker
+On Ubuntu/Debian:
+
+```bash
+# Update package index
+sudo apt-get update
+
+# Install dependencies
+sudo apt-get install apt-transport-https ca-certificates curl software-properties-common
+
+# Add Docker's official GPG key
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+
+# Add Docker repository
+sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+
+# Install Docker
+sudo apt-get update
+sudo apt-get install docker-ce docker-ce-cli containerd.io
+
+# Install Docker Compose
+sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+```
+
+On macOS:
+
+- Download and install Docker Desktop from https://www.docker.com/products/docker-desktop/
+- Docker Compose is included with Docker Desktop for macOS
+
+On Windows:
+
+- Download and install Docker Desktop from https://www.docker.com/products/docker-desktop/
+- Ensure WSL 2 is installed and configured (Docker Desktop will guide you through this)
+  Docker Compose is included with Docker Desktop for Windows
+
+### Verifying Installation
+Verify that Docker and Docker Compose are properly installed:
+
+```bash
+# Check Docker version
+docker --version
+
+# Check Docker Compose version
+docker-compose --version
+```
+
+## Running the Application
+
+### Setting Up Environment Variables
+
+Create a `.env` file in the root directory with your API keys and database connection details:
 
 ```
-# LLM Provider (openai or anthropic)
+# PostgreSQL Connection
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+POSTGRES_DB=postgres
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+
+# MySQL Connection (new in Version 1)
+MYSQL_HOST=mysql
+MYSQL_PORT=3306
+MYSQL_DB=testdb
+MYSQL_USER=mysql
+MYSQL_PASSWORD=mysql
+
+# LLM Configuration
 LLM_PROVIDER=openai
 OPENAI_API_KEY=your_openai_api_key
 ANTHROPIC_API_KEY=your_anthropic_api_key
 
-# PostgreSQL connection details (optional)
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_DB=your_database
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=postgres
+# Feature Flags
+VALIDATION_ENABLED=true
+VISUALIZATION_ENABLED=true
+CACHE_ENABLED=true
+
+# JWT Secret for authentication
+JWT_SECRET_KEY=your_secret_key_change_in_production
 ```
 
-## Usage
-
-### Interactive Mode
+### Using Docker Compose
 
 ```bash
-# Start the interactive mode
+# Clone the repository
+git clone https://github.com/yourusername/SparkSQL-Agent.git
+cd SparkSQL-Agent
+
+# Build and start all services
+docker-compose up -d
+
+# Check the status of the containers
+docker-compose ps
+```
+
+### Accessing the Application
+
+- **Web Interface**: Open your browser and navigate to http://localhost:3000
+- **Backend API**: Available at http://localhost:8000
+- **API Documentation**: http://localhost:8000/docs
+
+## Web Application (New in Version 1)
+
+The web application provides the following features:
+
+- **User Authentication**: Secure login and authentication system
+- **Database Connection Management**: Connect to PostgreSQL and MySQL databases
+- **Query Interface**: Enter natural language queries and see results
+- **Data Visualization**: Automatically generated charts based on query results
+- **Error Analysis**: View and analyze query failures
+- **Feedback Collection**: Submit feedback for failed queries
+
+### Default Login Credentials
+
+- Username: admin
+- Password: password123
+
+**Important**: Change these credentials before deploying to production.
+
+## Using the CLI Interface
+
+The CLI interface is still available for users who prefer command-line interaction:
+
+```bash
+# Access the PySpark container
+docker exec -it sparksql-agent-pyspark-1 bash
+
+# Run the CLI in interactive mode
 python -m spark_pg_agent_formal.cli interactive
 
 # Or with explicit database connection
-python -m spark_pg_agent_formal.cli interactive --pg-host localhost --pg-port 5432 --pg-db your_database
+python -m spark_pg_agent_formal.cli interactive --pg-host postgres --pg-port 5432 --pg-db postgres
 ```
 
-### Single Command Execution
-
-```bash
-# Execute a specific transformation
-python -m spark_pg_agent_formal.cli execute "show me total sales by region"
-```
-
-## Example Workflows
+## Example Queries
 
 ### Simple Queries
 
@@ -93,17 +188,24 @@ python -m spark_pg_agent_formal.cli execute "show me total sales by region"
 > Calculate the percentage change
 ```
 
+## Database Support
+
+Version 1 supports the following databases:
+
+- **PostgreSQL**: Full support for schema extraction and querying
+- **MySQL**: Full support for schema extraction and querying
+
+## Visualizations
+
+The agent can automatically suggest appropriate visualizations for query results, including:
+
+- Bar charts
+- Line charts
+- Pie charts
+- Scatter plots
+- Histograms
+
 ## Architecture
-
-The agent architecture follows these key principles:
-
-1. **State Management**: Tracking the agent's state through the transformation process
-2. **Multi-phase Compilation**: Breaking down the code generation into discrete phases
-3. **Execution Management**: Handling SparkSession lifecycle, code execution, and result extraction
-4. **Error Recovery**: Sequential recovery pipeline for handling errors
-5. **Memory System**: Tracking context across multiple transformation steps
-
-### System Architecture
 
 The Spark PostgreSQL Agent is structured in multiple layers:
 
@@ -113,7 +215,7 @@ The Spark PostgreSQL Agent is structured in multiple layers:
 +--------------------------------------------------------------+
                             |
               +-------------v------------+    +----------------+
-              |    Interface Layer       |<-->|   CLI Module   |
+              |    Interface Layer       |<-->|   Web/CLI      |
               +-------------------------+     +----------------+
                           |
 +--------------------------------------------------------------+
@@ -140,9 +242,9 @@ The Spark PostgreSQL Agent is structured in multiple layers:
 |  | |schema_     | |plan_   | |  |SparkExec. | |ResultValid.| |
 |  | |analysis    | |gen     | |  +-----------+ +------------+ |
 |  | +------------+ +--------+ |                                |
-|  | +------------+ +--------+ |                                |
-|  | |code_       | |code_   | |                                |
-|  | |generation  | |review  | |                                |
+|  | +------------+ +--------+ |  +-----------+ +------------+ |
+|  | |code_       | |code_   | |  |ResultCache| |Visualization| |
+|  | |generation  | |review  | |  +-----------+ +------------+ |
 |  | +------------+ +--------+ |                                |
 |  +---------------------------+                                |
 |                                                               |
@@ -152,115 +254,16 @@ The Spark PostgreSQL Agent is structured in multiple layers:
 +--------------------------------------------------------------+
 |                     External Systems                          |
 |  +-------------+  +-------------+  +----------------------+   |
-|  |  PostgreSQL |  |    Spark    |  | LLM Services         |   |
-|  |  Database   |  |             |  | (OpenAI, Anthropic)  |   |
+|  |  Database   |  | Spark       |  | LLM Services         |   |
+|  |  (PG/MySQL) |  | Cluster     |  | (OpenAI, Anthropic)  |   |
 |  +-------------+  +-------------+  +----------------------+   |
 +--------------------------------------------------------------+
 ```
 
-For complete details, see the `spark_pg_agent_architecture.txt` file.
+## Contributing
 
-### Code Execution
- 1. The SparkSQL Agent includes a robust execution engine that:
- 2. Manages SparkSession lifecycle and configuration
- 3. Executes generated PySpark code in a controlled environment
- 4. Intelligently identifies and extracts result DataFrames
- 5. Handles error recovery and reporting
- 6. Provides schema information from PostgreSQL databases
-
-
-### Multi-Phase Compilation and Tracing
-
-![Compilation Phases Trace](spark_pg_agent_formal/Examples/Traces/image.png)
-![Compilation Phases Trace2](spark_pg_agent_formal/Examples/Traces/image_copy.png)
-
-The agent uses a multi-phase compilation process, with each phase traced for debugging:
-
-1. **Schema Analysis**: Analyzes database schema to understand tables and relationships
-2. **Plan Generation**: Creates a step-by-step execution plan based on the request
-3. **Code Generation**: Transforms the plan into executable PySpark code
-4. **Code Review**: Validates the generated code for common issues
-
-#### Tracing System
-
-The tracing system captures detailed information at each phase:
-
-- **Phase Entry/Exit**: Records when each compilation phase starts and ends
-- **Intermediate Results**: Captures the output from each phase
-- **Error States**: Records any errors encountered during compilation
-- **Execution Steps**: Tracks the actual execution of the generated code
-- **Result Validation**: Records validation of the results
-
-Each trace is stored with a unique session ID, allowing for:
-- Debugging complex transformation workflows
-- Analyzing where errors occur in the compilation pipeline
-- Improving the agent's performance by identifying bottlenecks
-
-The agent uses **AgentTrace** for capturing, storing, and visualizing traces. The traces are recorded throughout the compilation and execution pipeline, with detailed timing and content information.
-
-steps to use agenttrace dashboard:
-- git clone https://github.com/tensorstax/agenttrace.git
-- cd agenttrace/frontend
-- npm run install:all
-- npm run start
-- 
-This will start:
-
-The backend API server on port 3033
-The frontend web interface on port 5173
-Open your browser and go to http://localhost:5173 to access the interface.
-
-To see the example traces, set spark_pg_agent_formal/Examples/Traces/spark_pg_agent_traces.db as the database path
-
-Traces can be viewed using:
-
-```bash
-# View traces in CLI mode
-python -m spark_pg_agent_formal.cli view-traces
-
-# Start the AgentTrace dashboard for interactive exploration
-python -m spark_pg_agent_formal.cli start-dashboard
-```
-
-The **AgentTrace dashboard** provides an interactive web interface for:
-- Viewing all recorded traces in a timeline view
-- Drilling down into specific execution phases
-- Analyzing performance bottlenecks
-- Comparing successful vs. failed executions
-- Exporting traces for external analysis
-
-### Memory System
-
-The SparkSQL Agent includes a session-based memory system for maintaining context across multiple queries:
-
-#### Memory Components
-
-- **Conversation History**: Tracks the sequence of user queries and agent responses
-- **Transformation Steps**: Stores executed transformations with their code and results
-- **Entity Tracker**: Maintains relationships between entities (tables, columns) used in queries
-- **Focus Entities**: Tracks which database objects the user is currently working with
-- **Named References**: Allows referring to previous results by name or description
-
-#### Memory Features
-
-The memory system enables several key capabilities:
-
-1. **Contextual Understanding**: The agent determines when queries relate to previous results
-2. **Reference Resolution**: Understanding queries like "filter that by date" or "now show me the top 10"
-3. **Intention Recognition**: Detecting user intentions (filtering, aggregating, sorting) from context
-4. **Request Classification**: Categorizing requests as new queries, refinements, or relative references
-5. **Transformation Storage**: Indexing and retrieving previous transformation steps
-
-Each transformation is stored with:
-- The original request text
-- Generated PySpark code
-- Tables and columns accessed
-- Result summary information
-- Timestamp and step number
-
-The memory system is session-based and designed to mimic human-like contextual understanding during a single analysis session. This allows for natural conversations about data without requiring repetition of context in every query.
-
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-MIT 
+This project is licensed under the MIT License - see the LICENSE file for details.

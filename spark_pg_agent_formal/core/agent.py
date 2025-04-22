@@ -11,6 +11,7 @@ from typing import Dict, Any, List, Optional, Tuple
 import traceback
 from datetime import datetime
 import logging
+import copy
 
 from pyspark.sql import SparkSession
 
@@ -99,13 +100,8 @@ class TransformationAgent:
                 # Log the request in memory
                 self.memory.add_to_conversation("user", request)
                 
-                # Check if this is a relative request
-                is_relative_request = self._is_relative_request(request)
-                if is_relative_request and not is_refinement:
-                    print(f"Detected relative request referring to previous: '{self._last_request}'")
-                
                 # Process the transformation
-                result = self._process_transformation(request, is_relative_request, previous_errors, is_refinement)
+                result = self._process_transformation(request, previous_errors, is_refinement)
                 
                 # If successful, store the context for future requests
                 if result.success:
@@ -189,32 +185,12 @@ class TransformationAgent:
             transformation_id=str(uuid.uuid4())
         )
     
-    def _is_relative_request(self, request: str) -> bool:
-        """
-        Determine if a request is relative to previous results.
-        
-        Args:
-            request: The user's request
-            
-        Returns:
-            True if the request appears to be relative, False otherwise
-        """
-        if not self.memory.previous_transformations:
-            return False
-            
-        # Use the memory's find_related_transformation to detect relative requests
-        related_transformation = self.memory.find_related_transformation(request)
-        
-        # Consider request relative if any relation is found
-        return related_transformation is not None
-    
-    def _process_transformation(self, request: str, is_relative: bool = False, previous_errors=None, is_refinement=False) -> ExecutionResult:
+    def _process_transformation(self, request: str, previous_errors=None, is_refinement=False) -> ExecutionResult:
         """
         Process a transformation request.
         
         Args:
             request: User's transformation request
-            is_relative: Whether this request is relative to previous results
             previous_errors: List of errors from previous attempts
             is_refinement: Whether this request is a refinement of a previous rejected transformation
             
@@ -251,6 +227,7 @@ class TransformationAgent:
                 "original_request": ref_context["original_request"],
                 "original_code": ref_context["original_code"]
             }
+            context.phase_results["is_refinement"] = True
             
             # Also add original result summary if available
             if ref_context["original_result"] and hasattr(ref_context["original_result"], 'result_data'):
@@ -258,61 +235,55 @@ class TransformationAgent:
                 context.phase_results["original_result_summary"] = self._serialize_for_prompt(result_summary)
                 
             print(f"Added refinement context from rejected transformation: '{ref_context['original_request']}'")
-        
-        # Handle references to previous transformations
         else:
-            # Find related transformation context from memory
-            related_transformation = self.memory.find_related_transformation(request)
+            # Stage 1: Get minimal past query information for initial context analysis
+            past_queries_result = self.memory.find_related_transformation(request)
             
-            if related_transformation:
-                reference_type = related_transformation.get("type", "")
-                base_transformation = related_transformation.get("base_transformation", {})
-                print(f"Found {reference_type} to previous transformation: '{base_transformation.get('request', '')}'")
-                
-                # Add relevant context based on the type of reference
-                if reference_type == "explicit_reference":
-                    # User explicitly referenced a specific transformation (e.g., "go back to first query")
-                    print(f"Processing explicit reference to step {base_transformation.get('step_number', '')}")
-                    context.phase_results["referenced_transformation"] = self._serialize_for_prompt(base_transformation)
-                    context.phase_results["reference_type"] = related_transformation.get("reference_type", "")
+            if past_queries_result:
+                # Add past queries to the context for stage 1 analysis
+                if "past_queries" in past_queries_result:
+                    past_queries = past_queries_result["past_queries"]
+                    context.phase_results["past_queries"] = self._serialize_for_prompt(past_queries)
+                    print(f"Providing {len(past_queries)} previous query prompts for context analysis")
                     
-                    # Set the previous request/code for the compiler context
-                    context.phase_results["previous_request"] = base_transformation.get("request", "")
-                    context.phase_results["previous_code"] = base_transformation.get("code", "")
+                    # Add direct memory reference for stage 2 (get_transformation_details)
+                    context.memory = self.memory
                     
-                elif reference_type == "relative_reference":
-                    # User made a relative reference like "show me the same but only for US"
-                    print(f"Processing relative reference to most recent transformation")
-                    context.phase_results["previous_request"] = base_transformation.get("request", "")
-                    context.phase_results["previous_code"] = base_transformation.get("code", "")
-                    
-                elif reference_type == "entity_reference":
-                    # User referenced entities from a previous transformation
-                    entity = related_transformation.get("reference_type", "").replace("entity_", "")
-                    print(f"Processing entity reference to '{entity}' from a previous transformation")
-                    context.phase_results["previous_request"] = base_transformation.get("request", "")
-                    context.phase_results["previous_code"] = base_transformation.get("code", "")
-                    context.phase_results["referenced_entity"] = entity
-                
-                # Always include the base transformation's result summary if available
-                result_summary = base_transformation.get("result_summary", {})
-                if result_summary:
-                    context.phase_results["previous_result_summary"] = self._serialize_for_prompt(result_summary)
+                    # Print the prompts for debugging purposes
+                    print("Previous prompts for context analysis:")
+                    for i, query in enumerate(past_queries):
+                        print(f"  Query #{i+1} (ID: {query.get('id', 'unknown')}): \"{query.get('request', '')}\"")
+        
+        # Add memory context
+        context.phase_results["memory_context"] = self._serialize_for_prompt(memory_context)
             
-            # Add memory context with implied intentions, focus entities, etc.
-            context.phase_results["memory_context"] = self._serialize_for_prompt(memory_context)
-            
-            # Print useful debug info
-            if "filter_requested" in memory_context:
-                print(f"Detected filter request in context: {memory_context.get('potential_filter_value', 'unknown value')}")
-            
-            if "implied_intentions" in memory_context and memory_context["implied_intentions"]:
-                print(f"Detected implied intentions: {', '.join(memory_context['implied_intentions'])}")
+        # Print useful debug info
+        if "filter_requested" in memory_context:
+            print(f"Detected filter request in context: {memory_context.get('potential_filter_value', 'unknown value')}")
+        
+        if "implied_intentions" in memory_context and memory_context["implied_intentions"]:
+            print(f"Detected implied intentions: {', '.join(memory_context['implied_intentions'])}")
         
         try:
             # Compile the request to PySpark code
             print("Compiling request...")
             code = self.compiler.compile_with_context(context)
+            
+            # After compilation, check if a specific past query was referenced and print it
+            if "context_analysis" in context.phase_results:
+                analysis = context.phase_results["context_analysis"]
+                requires_context = analysis.get("requires_context", False)
+                relevant_query_id = analysis.get("relevant_query_id", None)
+                relationship_type = analysis.get("relationship_type", "unknown")
+                confidence = analysis.get("confidence", 0)
+                
+                if requires_context and relevant_query_id:
+                    print(f"CONTEXT ANALYSIS: Using context from query {relevant_query_id}")
+                    print(f"  Relationship: {relationship_type}")
+                    print(f"  Confidence: {confidence}/10")
+                    print(f"  Explanation: {analysis.get('explanation', 'No explanation provided')}")
+                else:
+                    print("CONTEXT ANALYSIS: Treating as a new standalone query")
             
             # Execute the generated code
             print("Executing generated code...")

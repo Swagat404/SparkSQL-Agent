@@ -53,7 +53,7 @@ class AgentMemory(BaseModel):
     # Schema understanding that evolves during conversation
     schema_understanding: Dict[str, Any] = Field(default_factory=dict)
     
-    # Track user's focus and implied intentions
+    # Track user's focus and implied intentions - maintained for compatibility
     focus_entities: List[str] = Field(default_factory=list)
     
     # Refinement context for handling rejected transformations
@@ -88,7 +88,7 @@ class AgentMemory(BaseModel):
         Returns:
             Current step number
         """
-        # Create transformation record
+        # Create transformation record 
         transformation = {
             "request": request,
             "code": code,
@@ -96,7 +96,8 @@ class AgentMemory(BaseModel):
             "columns_used": columns_used,
             "result_summary": result_summary,
             "timestamp": datetime.now().isoformat(),
-            "step_number": self.step_counter
+            "step_number": self.step_counter,
+            "id": f"query_{self.step_counter}"  # Add ID for schema_analysis.py to reference
         }
         
         # Store in previous transformations list
@@ -119,78 +120,34 @@ class AgentMemory(BaseModel):
         current_step = self.step_counter
         self.step_counter += 1
         
-        # Create reference markers for this step
+        # Create basic reference markers for this step
         self._create_reference_markers(request, current_step)
         
         return current_step
     
     def get_relevant_context(self, request: str = None) -> Dict[str, Any]:
         """
-        Create a consolidated view of the conversation context.
+        Create a consolidated view of the conversation context for schema_analysis.py.
+        Only includes the minimum necessary information to reduce token usage.
         
         Args:
             request: Optional current request for context-aware retrieval
             
         Returns:
-            Dict containing entity focus, recent transformations, and implied intentions
+            Dict containing context information for LLM analysis
         """
+        # We only need to return a basic context here as schema_analysis.py
+        # will call find_related_transformation to get the detailed history
         context = {
-            "entity_focus": self.focus_entities,
-            "recent_transformations": self.previous_transformations[-3:] if self.previous_transformations else [],
-            "implied_intentions": self._extract_intentions()
+            "current_step": self.step_counter - 1 if self.step_counter > 1 else 0
         }
-        
-        # If a specific request is provided, enhance the context with request-specific info
-        if request and self.previous_transformations:
-            # Check for explicit step references
-            related_transformation = self.find_related_transformation(request)
-            if related_transformation and related_transformation.get("type") == "explicit_reference":
-                context["referenced_transformation"] = related_transformation.get("base_transformation")
-                context["reference_type"] = related_transformation.get("reference_type")
-            else:
-                # Analyze the request for indicators of what previous context might be relevant
-                request_lower = request.lower()
-                
-                # Check for specific mentions of tables or entities
-                for entity in self.focus_entities:
-                    if entity.lower() in request_lower:
-                        context["referenced_entity"] = entity
-                        # Find transformations related to this entity
-                        related_transformations = [
-                            t for t in self.previous_transformations 
-                            if entity in t.get("tables_used", [])
-                        ]
-                        if related_transformations:
-                            context["entity_related_transformations"] = related_transformations[-1:]
-                
-                # Check for filtering or modification language 
-                filter_terms = ["filter", "only", "where", "just", "from", "limit to"]
-                for term in filter_terms:
-                    if term in request_lower:
-                        context["filter_requested"] = True
-                        # Likely modifying previous results
-                        if self.previous_transformations:
-                            context["last_transformation"] = self.previous_transformations[-1]
-                
-                # Check for comparison language
-                comparison_terms = ["more than", "greater", "less than", "higher", "lower", "top", "bottom"]
-                for term in comparison_terms:
-                    if term in request_lower:
-                        context["comparison_requested"] = True
-                
-                # Extract potential condition values
-                # Example: "from US" → extract "US" as a potential filter value
-                country_pattern = r'\b(from|in|where|only|just)\s+([A-Z]{2})\b'
-                country_match = re.search(country_pattern, request)
-                if country_match:
-                    context["potential_filter_value"] = country_match.group(2)
-                    context["filter_type"] = "country"
         
         return context
     
     def _update_focus_entities(self, request: str, tables_used: List[str]) -> None:
         """
         Update focus entities based on the current request and tables used.
+        Maintained for compatibility, but primary context analysis is done by schema_analysis.py
         
         Args:
             request: The user request
@@ -207,28 +164,32 @@ class AgentMemory(BaseModel):
     
     def _extract_intentions(self) -> List[str]:
         """
-        Extract implied intentions from conversation history.
+        Extract basic query intentions from conversation history.
+        More sophisticated intention analysis is handled by the LLM in schema_analysis.py.
         
         Returns:
-            List of implied intentions
+            List of basic query intentions
         """
-        # Simplified implementation - this could be enhanced with LLM-based analysis
+        # Simplified implementation - detect only basic SQL operations
         intentions = []
         
-        # Check recent transformations for patterns
-        if len(self.previous_transformations) >= 2:
-            # Check for iteration pattern (similar requests)
-            prev = self.previous_transformations[-2]["request"].lower()
+        # Check if we have recent transformations
+        if len(self.previous_transformations) >= 1:
+            # Analyze current request for basic SQL operation patterns
             curr = self.previous_transformations[-1]["request"].lower()
             
-            if "aggregate" in curr or "group" in curr:
-                intentions.append("aggregation")
-            if "join" in curr:
-                intentions.append("joining_data")
-            if "filter" in curr or "where" in curr:
-                intentions.append("filtering_data")
-            if "sort" in curr or "order" in curr:
-                intentions.append("sorting_results")
+            # Detect basic SQL operations
+            sql_operations = {
+                "aggregation": ["aggregate", "group", "sum", "avg", "count", "min", "max"],
+                "joining": ["join", "combine", "merge", "related"],
+                "filtering": ["filter", "where", "having", "condition"],
+                "sorting": ["sort", "order", "rank", "top"]
+            }
+            
+            # Check for each operation type
+            for intent, keywords in sql_operations.items():
+                if any(keyword in curr for keyword in keywords):
+                    intentions.append(intent)
                 
         return intentions
         
@@ -277,7 +238,8 @@ class AgentMemory(BaseModel):
     
     def _create_reference_markers(self, request: str, step_number: int) -> None:
         """
-        Create semantic markers for retrieving steps later.
+        Create basic reference markers for retrieving steps later.
+        Provides minimal indexing - detailed analysis is done by schema_analysis.py
         
         Args:
             request: The user request
@@ -291,29 +253,20 @@ class AgentMemory(BaseModel):
             self.named_references["first_query"] = step_number
             self.named_references["initial_request"] = step_number
         
-        # Extract key concepts for this step
+        # Extract key concepts for this step - simplified to avoid domain-specific hardcoding
         concepts = self._extract_key_concepts(request)
         for concept in concepts:
-            # Store specific concepts like "customer list", "revenue report"
+            # Store generic concept references
             self.named_references[f"{concept}_step"] = step_number
             
-            # For important concepts, also store ordinal variants
-            if concept in ["customer", "revenue", "sales", "product"]:
-                self.named_references[f"{concept}_analysis"] = step_number
-                
-        # Store by query type
-        if "top" in request.lower() and any(term in request.lower() for term in ["customer", "spending"]):
-            self.named_references["top_customers"] = step_number
-            
-        elif "group" in request.lower() and "by" in request.lower():
-            group_by_match = re.search(r'group by (\w+)', request.lower())
-            if group_by_match:
-                group_by_field = group_by_match.group(1)
-                self.named_references[f"grouped_by_{group_by_field}"] = step_number
+        # Basic pattern detection for group by queries
+        if "group" in request.lower() and "by" in request.lower():
+            self.named_references["grouped_query"] = step_number
     
     def _extract_key_concepts(self, text: str) -> List[str]:
         """
-        Extract key concepts from text.
+        Extract key concepts from text using basic NLP techniques.
+        Domain-specific concept extraction is handled by the LLM in schema_analysis.py.
         
         Args:
             text: The text to analyze
@@ -324,7 +277,7 @@ class AgentMemory(BaseModel):
         # Convert to lowercase
         text = text.lower()
         
-        # Extract nouns and noun phrases
+        # Extract nouns and noun phrases - simplified approach
         keywords = []
         
         # Try using nltk for better concept extraction if available
@@ -342,39 +295,29 @@ class AgentMemory(BaseModel):
                 # Fallback to simple extraction if nltk processing fails
                 pass
         
-        # Simple extraction of nouns based on common data analysis terms
-        data_terms = ["customers", "customer", "sales", "revenue", "products", "product", 
-                    "orders", "order", "transactions", "users", "user", "accounts", 
-                    "items", "countries", "regions", "categories", "dates", "year", 
-                    "month", "day", "report", "summary", "analysis", "list", "total"]
+        # Basic extraction of common terms in queries
+        common_query_terms = ["select", "from", "where", "group", "order", "by", "having", "join", 
+                            "analysis", "report", "list", "summary", "total", "count", "average", "sum"]
         
-        # Check for these terms in the text
-        for term in data_terms:
-            if term in text:
-                keywords.append(term)
-        
-        # Check for noun phrases with simple pattern matching
-        noun_phrase_patterns = [
-            r'(\w+) report',
-            r'(\w+) list',
-            r'(\w+) analysis',
-            r'(\w+) summary',
+        # Simple pattern matching for generic SQL-related concepts
+        generic_patterns = [
             r'(\w+) by (\w+)',
-            r'top (\w+)',
-            r'(\w+) statistics',
-            r'(\w+) metrics',
-            r'(\w+) trends',
-            r'(\w+) data'
+            r'(\w+) with (\w+)',
+            r'top (\d+)',
+            r'average (\w+)',
+            r'total (\w+)',
+            r'count (\w+)'
         ]
         
-        for pattern in noun_phrase_patterns:
+        # Apply generic patterns
+        for pattern in generic_patterns:
             matches = re.findall(pattern, text)
             for match in matches:
                 if isinstance(match, tuple):
                     for term in match:
-                        if term not in keywords:
+                        if term not in keywords and term not in common_query_terms:
                             keywords.append(term)
-                elif match not in keywords:
+                elif match not in keywords and match not in common_query_terms:
                     keywords.append(match)
         
         # Make sure we have unique terms
@@ -425,83 +368,83 @@ class AgentMemory(BaseModel):
         # If no specific reference found, default to most recent
         return self.transformation_steps.get(self.step_counter - 1) if self.transformation_steps else None
     
+    def get_past_queries(self, max_queries: int = 5) -> List[Dict[str, Any]]:
+        """
+        Get a simple list of past query prompts for context analysis.
+        Token-efficient method that just returns minimal info about past queries.
+        
+        Args:
+            max_queries: Maximum number of past queries to return
+            
+        Returns:
+            List of past queries with minimal info
+        """
+        past_queries = []
+        if self.transformation_steps:
+            # Get the keys (step numbers) in descending order (most recent first)
+            recent_keys = sorted(self.transformation_steps.keys(), reverse=True)[:max_queries]
+            
+            # Get just the basic info needed for context determination
+            for key in recent_keys:
+                transformation = self.transformation_steps[key]
+                if transformation:
+                    past_queries.append({
+                        "id": f"query_{key}",
+                        "request": transformation.get("request", ""),
+                        "step_number": key
+                    })
+        
+        return past_queries
+
+    def get_transformation_details(self, query_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get detailed information for a specific transformation by ID.
+        Only called after relevance is determined.
+        
+        Args:
+            query_id: ID of the transformation to retrieve (e.g., "query_1")
+            
+        Returns:
+            Detailed information about the specific transformation
+        """
+        if not query_id.startswith("query_"):
+            return None
+            
+        try:
+            step_number = int(query_id.replace("query_", ""))
+            transformation = self.transformation_steps.get(step_number)
+            
+            if transformation:
+                return {
+                    "id": query_id,
+                    "request": transformation.get("request", ""),
+                    "tables_used": transformation.get("tables_used", []),
+                    "columns_used": transformation.get("columns_used", {}),
+                    "result_summary": {
+                        "row_count": transformation.get("result_summary", {}).get("row_count", "unknown"),
+                        "columns": transformation.get("result_summary", {}).get("columns", []),
+                        "sample_data": transformation.get("result_summary", {}).get("sample_data", [])[:2] if "sample_data" in transformation.get("result_summary", {}) else []
+                    }
+                }
+        except ValueError:
+            return None
+            
+        return None
+
     def find_related_transformation(self, current_request: str) -> Optional[Dict[str, Any]]:
         """
-        Find transformations from memory that are relevant to the current request.
+        Get transformation history for LLM to analyze relationships.
+        Provides only the essential information needed by schema_analysis.py.
+        Now just returns a list of past prompts for more token-efficient analysis.
         
         Args:
             current_request: The current user request
             
         Returns:
-            Dictionary with relevant transformation information
+            Transformation history for the context's phase_results
         """
-        # First, check for explicit step references
-        step_reference_patterns = [
-            r"(?:go back to|use|from|in) (?:the )?(first|second|third|last|previous) (?:query|step|request)",
-            r"(?:use|show|get) (?:the )?(.*?) (?:from|in) step (\d+)",
-            r"(?:go to|use) step (\d+)",
-            r"(?:the )?(.*?) (?:we saw|I got|you showed) earlier",
-            r"(?:back to|return to) (?:the )?(.*?) (?:analysis|query|list|report)"
-        ]
+        # Get past queries with minimal information
+        past_queries = self.get_past_queries(max_queries=5)
         
-        for pattern in step_reference_patterns:
-            match = re.search(pattern, current_request, re.IGNORECASE)
-            if match:
-                # Extract the step reference
-                if len(match.groups()) == 1:
-                    step_reference = match.group(1)
-                else:
-                    # If we captured a concept and a step, combine them
-                    concept = match.group(1) if len(match.groups()) > 1 else ""
-                    step_num = match.group(2) if len(match.groups()) > 1 else match.group(1)
-                    step_reference = f"{concept} step {step_num}"
-                    
-                # Get the referenced step
-                referenced_step = self.get_step(step_reference)
-                if referenced_step:
-                    return {
-                        "type": "explicit_reference",
-                        "base_transformation": referenced_step,
-                        "reference_type": step_reference
-                    }
-        
-        # Check for "same but" type references (referring to most recent)
-        same_but_patterns = [
-            r"(?:the )?same (?:but|except)",
-            r"(?:show|get) (?:me )?(?:the )?same",
-            r"(?:like|as) (?:before|the previous|the last)",
-            r"(?:similar to|just like) (?:before|the previous|the last)"
-        ]
-        
-        for pattern in same_but_patterns:
-            if re.search(pattern, current_request, re.IGNORECASE):
-                if self.transformation_steps and self.step_counter > 1:
-                    return {
-                        "type": "relative_reference",
-                        "base_transformation": self.transformation_steps.get(self.step_counter - 1),
-                        "reference_type": "most_recent"
-                    }
-        
-        # Check for entity-based references
-        request_lower = current_request.lower()
-        for entity in self.focus_entities:
-            if entity.lower() in request_lower:
-                # Find most recent transformation that used this entity
-                for step in range(self.step_counter - 1, 0, -1):
-                    transformation = self.transformation_steps.get(step)
-                    if transformation and entity in transformation.get("tables_used", []):
-                        return {
-                            "type": "entity_reference",
-                            "base_transformation": transformation,
-                            "reference_type": f"entity_{entity}"
-                        }
-        
-        # If no explicit reference is found, default to most recent transformation
-        if self.transformation_steps and self.step_counter > 1:
-            return {
-                "type": "default_reference",
-                "base_transformation": self.transformation_steps.get(self.step_counter - 1),
-                "reference_type": "default_most_recent"
-            }
-        
-        return None 
+        # Return the list of past queries for initial relevance determination
+        return {"past_queries": past_queries} if past_queries else None 
