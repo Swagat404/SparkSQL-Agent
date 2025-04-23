@@ -1,0 +1,20 @@
+{
+  "301dc347-36e2-4f6b-bdd6-7cd90635bd37": {
+    "name": "Host Machine Postgres",
+    "type": "postgresql",
+    "host": "host.docker.internal",
+    "port": 5432,
+    "database": "postgres",
+    "username": "postgres",
+    "password": "postgres"
+  },
+  "cec7a95a-2868-44f7-9719-7a88269d607b": {
+    "name": "Docker Host Test Connection",
+    "type": "postgresql",
+    "host": "host.docker.internal",
+    "port": 5432,
+    "database": "postgres",
+    "username": "postgres",
+    "password": "postgres"
+  }
+}

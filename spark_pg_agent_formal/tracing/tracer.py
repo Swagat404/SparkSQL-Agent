@@ -10,8 +10,20 @@ import time
 import uuid
 from functools import wraps
 from typing import Callable, List, Dict, Any, Optional
+import functools
+from contextlib import contextmanager
 
 from agenttrace import TraceManager
+
+# Define standard compilation phases here instead of importing from phase_tracker
+# to avoid circular imports
+COMPILATION_PHASES = [
+    "schema_analysis", 
+    "query_planning",
+    "code_generation",
+    "code_review",
+    "executing_query"
+]
 
 # Environment checks for tracing behavior
 QUIET_TRACING = True #os.environ.get("SPARK_PG_AGENT_QUIET_TRACING") == "1"
@@ -221,125 +233,106 @@ def trace_llm_call(func: Callable) -> Callable:
     return wrapper
 
 
-def trace_compilation_phase(phase: str) -> Callable:
+def trace_compilation_phase(phase_name: str):
     """
-    Decorator to trace a compilation phase.
+    Decorator to trace the execution of compilation phases.
     
     Args:
-        phase: Name of the compilation phase
+        phase_name: Name of the compilation phase to trace
         
     Returns:
-        Decorator function
+        Decorated function
     """
-    def decorator(func: Callable) -> Callable:
-        @wraps(func)
+    def decorator(func):
+        @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            # Get the compilation context if it's in the arguments
+            # Extract context from args
             context = None
-            # Try to find context in the arguments
             for arg in args:
-                if hasattr(arg, 'user_request') and hasattr(arg, 'compilation_session_id'):
+                if hasattr(arg, "compilation_session_id") and hasattr(arg, "phase_results"):
                     context = arg
                     break
             
-            # Check context in kwargs
-            if context is None and 'context' in kwargs:
-                context = kwargs['context']
+            # Check if this is a start event
+            is_start = kwargs.pop("is_start", False)
+            
+            # Get session ID for tracing
+            session_id = context.compilation_session_id if context else None
+            
+            # Trace the execution with agenttrace
+            tags = [phase_name]
+            if is_start:
+                tags.append("phase_start")
+            else:
+                tags.append("phase_end")
                 
-            # Extract request info and session ID from context or use defaults
-            user_request = "Unknown request"
-            session_id = f"compile_{uuid.uuid4().hex[:8]}"
-            transformation_id = None
-            attempt_number = None
+            result = trace_manager.trace(tags=tags, session_id=session_id)(func)(*args, **kwargs)
             
-            if context:
-                # Use context information when available
-                if hasattr(context, 'user_request'):
-                    user_request = context.user_request
-                if hasattr(context, 'compilation_session_id'):
-                    session_id = context.compilation_session_id
-                if hasattr(context, 'transformation_id'):
-                    transformation_id = context.transformation_id
-                if hasattr(context, 'attempt_number'):
-                    attempt_number = context.attempt_number
-            
-            # Redirect outputs if console output is disabled
-            original_stdout, original_stderr = None, None
-            if not ENABLE_CONSOLE_OUTPUT:
-                original_stdout, original_stderr = redirect_outputs()
-                
-            # Flag to track if this is the start or end of a phase
-            is_start = kwargs.pop('is_start', False) if 'is_start' in kwargs else False
-            
-            # Create tags for the trace
-            tags = ["compiler", phase.lower().replace(" ", "_")]
-            if transformation_id:
-                tags.append(f"transform-{transformation_id}")
-            if attempt_number:
-                tags.append(f"attempt-{attempt_number}")
-                
-            # Log start of phase using trace_print
-            phase_state = "START" if is_start else "END"
-            trace_print(f"[TRACE] Compilation phase: {phase} - {phase_state} (session: {session_id})")
-            
-            @trace_manager.trace(tags=tags, session_id=session_id)
-            def traced_phase():
-                try:
-                    # Execute the phase
-                    start_time = time.time()
-                    result = func(*args, **kwargs)
-                    execution_time = time.time() - start_time
-                    
-                    # Log completion with trace_print
-                    trace_print(f"[TRACE] Compilation phase {phase} completed in {execution_time:.2f}s (session: {session_id})")
-                    
-                    # Prepare result data
-                    phase_data = {
-                        "user_request": user_request,
-                        "phase": phase,
-                        "state": phase_state,
-                        "execution_time_seconds": execution_time
-                    }
-                    
-                    # Add transformation tracking info 
-                    if transformation_id:
-                        phase_data["transformation_id"] = transformation_id
-                    if attempt_number:
-                        phase_data["attempt_number"] = attempt_number
-                    
-                    return phase_data, result
-                except Exception as e:
-                    error_data = {
-                        "user_request": user_request,
-                        "phase": phase,
-                        "state": phase_state,
-                        "error": str(e)
-                    }
-                    
-                    # Add transformation tracking info to error data too
-                    if transformation_id:
-                        error_data["transformation_id"] = transformation_id
-                    if attempt_number:
-                        error_data["attempt_number"] = attempt_number
-                        
-                    return error_data, None
-            
+            # Get phase tracker on-demand to avoid circular imports
             try:
-                # Call the traced function
-                data, result = traced_phase()
+                from spark_pg_agent_formal.phase_tracker import phase_tracker
                 
-                # If there was an error in the data, raise it
-                if "error" in data:
-                    raise Exception(data["error"])
-                    
-                return result
-            finally:
-                # Restore outputs if we redirected them
-                if original_stdout is not None and original_stderr is not None:
-                    restore_outputs(original_stdout, original_stderr)
-        
+                if session_id:
+                    if is_start:
+                        # Normalize phase name for phase tracker
+                        standard_phase = phase_name.lower()
+                        
+                        # Notify phase tracker of phase start
+                        phase_tracker._handle_trace_event({
+                            'session_id': session_id,
+                            'tags': [standard_phase, 'phase_start'],
+                            'timestamp': time.time()
+                        })
+                    else:
+                        # For end events
+                        # Extract thinking from context if available
+                        thinking = None
+                        if context and hasattr(context, "phase_results"):
+                            if phase_name.lower() == "schema_analysis" and "schema_analysis" in context.phase_results:
+                                thinking = f"Schema analysis complete. Found tables: {context.tables_referenced}"
+                            elif phase_name.lower() == "plan_generation" and "plan_generation" in context.phase_results:
+                                plan_data = context.phase_results.get("plan_generation", {})
+                                thinking = plan_data.get("plan", "No plan available")
+                            elif phase_name.lower() == "code_generation" and "code_generation" in context.phase_results:
+                                code_data = context.phase_results.get("code_generation", {})
+                                thinking = code_data.get("code", "No code generated")
+                            elif phase_name.lower() == "code_review" and "code_review" in context.phase_results:
+                                review_data = context.phase_results.get("code_review", {})
+                                passed = review_data.get("passed", False)
+                                thinking = "Code review passed" if passed else "Code review failed"
+                                if "issues" in review_data:
+                                    thinking += f"\nIssues: {review_data['issues']}"
+                                if "suggestions" in review_data:
+                                    thinking += f"\nSuggestions: {review_data['suggestions']}"
+                        
+                        # Normalize phase name for tracker
+                        standard_phase = phase_name.lower()
+                        if "context_aware" in standard_phase or "error_aware" in standard_phase or "refinement" in standard_phase:
+                            standard_phase = "code_generation"
+                        
+                        # Map to standard phase names if possible
+                        if standard_phase == "schema_analysis":
+                            standard_phase = "schema_analysis"
+                        elif standard_phase == "plan_generation":
+                            standard_phase = "query_planning"
+                        elif standard_phase == "code_generation":
+                            standard_phase = "code_generation"
+                        elif standard_phase == "code_review":
+                            standard_phase = "code_review"
+                        
+                        # Notify phase tracker of phase end
+                        phase_tracker._handle_trace_event({
+                            'session_id': session_id,
+                            'tags': [standard_phase, 'phase_end'],
+                            'thinking': thinking,
+                            'timestamp': time.time()
+                        })
+            except ImportError:
+                # If phase_tracker can't be imported, just continue without it
+                pass
+            
+            return result
         return wrapper
-    
     return decorator
 
 
@@ -448,6 +441,37 @@ def trace_code_execution(func: Callable) -> Callable:
                 
         # Execute the traced function
         data, result = traced_execution()
+        
+        # Get phase tracker on-demand to avoid circular imports
+        try:
+            from spark_pg_agent_formal.phase_tracker import phase_tracker
+            
+            # Notify phase tracker about execution event
+            if session_id:
+                # For successful execution
+                if data.get("successful", False):
+                    execution_time = data.get("execution_time_seconds", 0)
+                    execution_content = f"Query executed successfully in {execution_time:.3f} seconds."
+                    
+                    # Record execution success in phase tracker
+                    phase_tracker._handle_trace_event({
+                        'session_id': session_id,
+                        'tags': ['executing_query', 'phase_end'],
+                        'thinking': execution_content,
+                        'timestamp': time.time()
+                    })
+                else:
+                    # For failed execution
+                    error_msg = data.get("error", "Unknown error")
+                    phase_tracker._handle_trace_event({
+                        'session_id': session_id,
+                        'tags': ['executing_query', 'phase_end'],
+                        'thinking': f"Error: {error_msg}",
+                        'timestamp': time.time()
+                    })
+        except ImportError:
+            # If phase_tracker can't be imported, just continue without it
+            pass
         
         # Return the result, whether successful or not
         return result

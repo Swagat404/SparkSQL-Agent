@@ -22,6 +22,7 @@ from spark_pg_agent_formal.tracing import (
     disable_console_output,
     enable_console_output
 )
+from spark_pg_agent_formal.phase_tracker import phase_tracker
 
 # New imports for refactored modules
 from spark_pg_agent_formal.core.context import CompilationContext

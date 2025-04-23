@@ -1,0 +1,781 @@
+COMPILATION SESSION: compile_ea5a3215
+USER REQUEST: Show me all orders
+TIMESTAMP: 2025-04-23T07:43:23.251925
+
+
+================================================================================
+PHASE: SCHEMA_ANALYSIS
+TIMESTAMP: 2025-04-23T07:43:23.263476
+================================================================================
+
+PROMPT:
+
+    You are analyzing a database schema to identify the tables and columns needed for a transformation.
+    
+    Request: "Show me all orders"
+    
+    Table: campaign_analytics
+Columns: integer, integer, integer, date, integer, integer, integer, numeric
+
+Table: campaigns
+Columns: integer, character varying, date, date, numeric, character varying
+
+Table: customers
+Columns: integer, text, text, text
+
+Table: marketing_channels
+Columns: integer, character varying, character varying, character varying
+
+Table: order_history
+Columns: integer, integer, numeric, timestamp without time zone
+
+Table: order_items
+Columns: integer, integer, integer, integer, double precision
+
+Table: orders
+Columns: integer, integer, date, double precision
+
+Table: products
+Columns: integer, text, text, double precision, double precision
+
+Table: users
+Columns: integer, character varying, character varying, timestamp without time zone
+
+    
+    Based on the request and schema, please identify:
+    1. Which tables are needed for this transformation
+    2. Which columns from each table are needed
+    3. Any joins that will be required between tables
+    
+    Format your response as JSON with the following structure:
+    {
+        "tables": ["table1", "table2"],
+        "columns": {"table1": ["col1", "col2"], "table2": ["col1", "col3"]},
+        "joins": [
+            {"left_table": "table1", "left_column": "id", "right_table": "table2", "right_column": "table1_id"}
+        ],
+        "explanation": "Brief explanation of your analysis"
+    }
+    
+    Use only the tables and columns mentioned in the schema.
+    
+
+
+================================================================================
+
+
+================================================================================
+PHASE: SCHEMA_ANALYSIS_RESPONSE
+TIMESTAMP: 2025-04-23T07:43:28.516004
+================================================================================
+
+PROMPT:
+
+
+RESPONSE:
+```json
+{
+    "tables": ["orders", "order_items", "order_history"],
+    "columns": {
+        "orders": ["integer", "integer", "date", "double precision"],
+        "order_items": ["integer", "integer", "integer", "integer", "double precision"],
+        "order_history": ["integer", "integer", "numeric", "timestamp without time zone"]
+    },
+    "joins": [
+        {
+            "left_table": "orders",
+            "left_column": "integer",
+            "right_table": "order_items",
+            "right_column": "integer"
+        },
+        {
+            "left_table": "orders",
+            "left_column": "integer",
+            "right_table": "order_history",
+            "right_column": "integer"
+        }
+    ],
+    "explanation": "To show all orders, the primary table needed is 'orders', which contains the main order details. The 'order_items' table is needed to get details about the items in each order, and the 'order_history' table is needed to get historical data related to each order. Joins are required between 'orders' and 'order_items' as well as between 'orders' and 'order_history' based on the order ID, which is represented by the first integer column in each table."
+}
+```
+
+
+================================================================================
+
+
+================================================================================
+PHASE: PLAN_GENERATION
+TIMESTAMP: 2025-04-23T07:43:28.520516
+================================================================================
+
+PROMPT:
+
+    You are designing an execution plan for a PySpark transformation.
+    
+    Request: "Show me all orders"
+    
+    Based on schema analysis, the following tables and columns are needed:
+    Tables: ['orders', 'order_items', 'order_history']
+    
+    Columns by table:
+    {
+  "orders": [
+    "integer",
+    "integer",
+    "date",
+    "double precision"
+  ],
+  "order_items": [
+    "integer",
+    "integer",
+    "integer",
+    "integer",
+    "double precision"
+  ],
+  "order_history": [
+    "integer",
+    "integer",
+    "numeric",
+    "timestamp without time zone"
+  ]
+}
+    
+    Table schemas:
+    {
+  "orders": {
+    "columns": {
+      "order_id": "integer",
+      "customer_id": "integer",
+      "order_date": "date",
+      "total_amount": "double precision"
+    },
+    "primary_keys": [
+      "order_id"
+    ],
+    "foreign_keys": {
+      "customer_id": [
+        "customers",
+        "customer_id"
+      ]
+    }
+  },
+  "order_items": {
+    "columns": {
+      "item_id": "integer",
+      "order_id": "integer",
+      "product_id": "integer",
+      "quantity": "integer",
+      "price_per_unit": "double precision"
+    },
+    "primary_keys": [
+      "item_id"
+    ],
+    "foreign_keys": {
+      "order_id": [
+        "orders",
+        "order_id"
+      ],
+      "product_id": [
+        "products",
+        "product_id"
+      ]
+    }
+  },
+  "order_history": {
+    "columns": {
+      "id": "integer",
+      "user_id": "integer",
+      "order_value": "numeric",
+      "order_date": "timestamp without time zone"
+    },
+    "primary_keys": [
+      "id"
+    ],
+    "foreign_keys": {
+      "user_id": [
+        "users",
+        "id"
+      ]
+    }
+  }
+}
+    
+    Identified joins:
+    [
+  {
+    "left_table": "orders",
+    "left_column": "integer",
+    "right_table": "order_items",
+    "right_column": "integer"
+  },
+  {
+    "left_table": "orders",
+    "left_column": "integer",
+    "right_table": "order_history",
+    "right_column": "integer"
+  }
+]
+    
+    
+    
+    Please create a step-by-step execution plan that outlines:
+    1. How to load the necessary tables
+    2. What transformations to apply (filters, joins, aggregations, etc.)
+    3. The order of operations
+    4. What the final output should look like
+    
+    Format your response as a numbered list of steps, followed by a summary.
+    
+
+
+================================================================================
+
+
+================================================================================
+PHASE: PLAN_GENERATION_RESPONSE
+TIMESTAMP: 2025-04-23T07:43:38.750684
+================================================================================
+
+PROMPT:
+
+
+RESPONSE:
+Certainly! Below is a step-by-step execution plan for the PySpark transformation to show all orders, based on the provided schema and requirements.
+
+### Execution Plan
+
+1. **Load the Necessary Tables:**
+   - Load the `orders` table into a DataFrame named `orders_df`.
+   - Load the `order_items` table into a DataFrame named `order_items_df`.
+   - Load the `order_history` table into a DataFrame named `order_history_df`.
+
+2. **Transformations and Joins:**
+   - **Join `orders` and `order_items`:**
+     - Perform an inner join between `orders_df` and `order_items_df` on the `order_id` column. This will combine order details with their respective items.
+     - Resulting DataFrame: `orders_items_joined_df`.
+
+   - **Join `orders_items_joined_df` with `order_history`:**
+     - Perform an inner join between `orders_items_joined_df` and `order_history_df` on the `order_id` column from `orders` and `id` column from `order_history`.
+     - Resulting DataFrame: `complete_orders_df`.
+
+3. **Select and Rename Columns:**
+   - Select the necessary columns from `complete_orders_df` to form the final output. This may include:
+     - `orders.order_id`
+     - `orders.customer_id`
+     - `orders.order_date`
+     - `orders.total_amount`
+     - `order_items.product_id`
+     - `order_items.quantity`
+     - `order_items.price_per_unit`
+     - `order_history.order_value`
+     - `order_history.order_date` (rename to `history_order_date` to avoid confusion with `orders.order_date`)
+
+4. **Order of Operations:**
+   - Start by loading the tables as DataFrames.
+   - Perform the first join between `orders` and `order_items`.
+   - Perform the second join with `order_history`.
+   - Select and rename the necessary columns for clarity.
+
+5. **Final Output:**
+   - The final output should be a DataFrame that includes all relevant order information, combining details from `orders`, `order_items`, and `order_history`.
+   - Ensure the DataFrame is well-structured and ready for further analysis or export.
+
+### Summary
+
+The execution plan involves loading the necessary tables into DataFrames, performing a series of joins to combine order details with their respective items and history, and selecting the relevant columns for the final output. The process ensures that all orders are displayed with comprehensive details, including customer information, order items, and historical data. This structured approach allows for efficient data processing and analysis using PySpark.
+
+
+================================================================================
+
+
+================================================================================
+PHASE: ERROR_AWARE_CODE_GENERATION
+TIMESTAMP: 2025-04-23T07:43:38.762481
+================================================================================
+
+PROMPT:
+
+    You are generating PySpark code to implement a database transformation.
+    
+    User Request: "Show me all orders"
+    
+    Execution Plan:
+    Certainly! Below is a step-by-step execution plan for the PySpark transformation to show all orders, based on the provided schema and requirements.
+
+### Execution Plan
+
+1. **Load the Necessary Tables:**
+   - Load the `orders` table into a DataFrame named `orders_df`.
+   - Load the `order_items` table into a DataFrame named `order_items_df`.
+   - Load the `order_history` table into a DataFrame named `order_history_df`.
+
+2. **Transformations and Joins:**
+   - **Join `orders` and `order_items`:**
+     - Perform an inner join between `orders_df` and `order_items_df` on the `order_id` column. This will combine order details with their respective items.
+     - Resulting DataFrame: `orders_items_joined_df`.
+
+   - **Join `orders_items_joined_df` with `order_history`:**
+     - Perform an inner join between `orders_items_joined_df` and `order_history_df` on the `order_id` column from `orders` and `id` column from `order_history`.
+     - Resulting DataFrame: `complete_orders_df`.
+
+3. **Select and Rename Columns:**
+   - Select the necessary columns from `complete_orders_df` to form the final output. This may include:
+     - `orders.order_id`
+     - `orders.customer_id`
+     - `orders.order_date`
+     - `orders.total_amount`
+     - `order_items.product_id`
+     - `order_items.quantity`
+     - `order_items.price_per_unit`
+     - `order_history.order_value`
+     - `order_history.order_date` (rename to `history_order_date` to avoid confusion with `orders.order_date`)
+
+4. **Order of Operations:**
+   - Start by loading the tables as DataFrames.
+   - Perform the first join between `orders` and `order_items`.
+   - Perform the second join with `order_history`.
+   - Select and rename the necessary columns for clarity.
+
+5. **Final Output:**
+   - The final output should be a DataFrame that includes all relevant order information, combining details from `orders`, `order_items`, and `order_history`.
+   - Ensure the DataFrame is well-structured and ready for further analysis or export.
+
+### Summary
+
+The execution plan involves loading the necessary tables into DataFrames, performing a series of joins to combine order details with their respective items and history, and selecting the relevant columns for the final output. The process ensures that all orders are displayed with comprehensive details, including customer information, order items, and historical data. This structured approach allows for efficient data processing and analysis using PySpark.
+    
+    PREVIOUS FAILED ATTEMPTS:
+    
+Attempt 1:
+Error: Execution failed: Execution error: [AMBIGUOUS_REFERENCE] Reference `order_id` is ambiguous, could be: [`order_id`, `order_id`].
+Traceback (most recent call last):
+  File "/app/spark_pg_agent_formal/execution/executor.py", line 149, in execute
+    exec(modified_code, local_context)
+  File "<string>", line 34, in <module>
+  File "/usr/local/lib/python3.9/site-packages/pyspark/sql/dataframe.py", line 3080, in __getitem__
+    jc = self._jdf.apply(item)
+  File "/usr/local/lib/python3.9/site-packages/py4j/java_gateway.py", line 1322, in __call__
+    return_value = get_return_value(
+  File "/usr/local/lib/python3.9/site-packages/pyspark/errors/exceptions/captured.py", line 185, in deco
+    raise converted from None
+pyspark.errors.exceptions.captured.AnalysisException: [AMBIGUOUS_REFERENCE] Reference `order_id` is ambiguous, could be: [`order_id`, `order_id`].
+
+Code snippet:
+```
+# Necessary imports
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+
+# SparkSession creation (commented out as it may already exist)
+# spark = SparkSession.builder\
+#     .appName("PySpark Transformation")\
+```
+
+    
+    DETAILED ERROR ANALYSIS:
+    - Ambiguous column references detected: you must use table qualification for all references
+  Affected columns: ``order_id``
+    
+    
+    CODE STRUCTURE REQUIREMENTS:
+    1. For SparkSession creation, use this pattern:
+       spark = SparkSession.builder\
+           .appName("App Name")\
+           .getOrCreate()
+       
+    2. For all column references in joins or conditions, ALWAYS use fully qualified table aliases
+       Example: df1["column"] == df2["column"]
+    
+    3. For every join, use explicit equality conditions
+       Example: df1.join(df2, df1["id"] == df2["id"], "inner")
+    
+    4. Final output must store results in variable named 'result_df'
+    
+    Generate a complete, executable PySpark code that implements the requested transformation
+    while avoiding the previously identified errors:
+    
+        Use the structure of this previous attempt as a starting point, but fix the identified errors:
+        ```python
+        # Necessary imports
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+
+# SparkSession creation (commented out as it may already exist)
+# spark = SparkSession.builder\
+#     .appName("PySpark Transformation")\
+#     .getOrCreate()
+
+# JDBC connection details
+jdbc_url = "jdbc:postgresql://host.docker.internal:5432/postgres"
+connection_properties = {
+    "user": "postgres",
+    "password": "postgres",
+    "driver": "org.postgresql.Driver"
+}
+
+# Load the necessary tables into DataFrames
+orders_df = spark.read.jdbc(url=jdbc_url, table="orders", properties=connection_properties)
+order_items_df = spark.read.jdbc(url=jdbc_url, table="order_items", properties=connection_properties)
+order_history_df = spark.read.jdbc(url=jdbc_url, table="order_history", properties=connection_properties)
+
+# Step 1: Join `orders` and `order_items` on `order_id`
+orders_items_joined_df = orders_df.join(
+    order_items_df,
+    orders_df["order_id"] == order_items_df["order_id"],
+    "inner"
+)
+
+# Step 2: Join `orders_items_joined_df` with `order_history` on `order_id`
+# Note: Assuming `order_id` in `order_history` corresponds to `user_id` for this example
+full_orders_df = orders_items_joined_df.join(
+    order_history_df,
+    orders_items_joined_df["order_id"] == order_history_df["user_id"],
+    "inner"
+)
+
+# Step 3: Select and rename columns
+result_df = full_orders_df.select(
+    orders_df["order_id"],
+    orders_df["customer_id"],
+    orders_df["order_date"],
+    orders_df["total_amount"],
+    order_items_df["product_id"],
+    order_items_df["quantity"],
+    order_items_df["price_per_unit"],
+    order_history_df["order_value"],
+    order_history_df["order_date"].alias("history_order_date")
+)
+
+# Display the final result
+result_df.show()
+
+# Note: Ensure that the SparkSession is stopped if it was created in this script
+# spark.stop()
+        ```
+        
+
+
+================================================================================
+
+
+================================================================================
+PHASE: ERROR_AWARE_CODE_GENERATION_RESPONSE
+TIMESTAMP: 2025-04-23T07:43:47.102480
+================================================================================
+
+PROMPT:
+
+
+RESPONSE:
+Certainly! Below is the corrected and complete PySpark code that implements the requested transformation while addressing the previously identified errors, such as ambiguous column references:
+
+```python
+# Necessary imports
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+
+# SparkSession creation
+spark = SparkSession.builder\
+    .appName("Show All Orders")\
+    .getOrCreate()
+
+# JDBC connection details
+jdbc_url = "jdbc:postgresql://host.docker.internal:5432/postgres"
+connection_properties = {
+    "user": "postgres",
+    "password": "postgres",
+    "driver": "org.postgresql.Driver"
+}
+
+# Load the necessary tables into DataFrames
+orders_df = spark.read.jdbc(url=jdbc_url, table="orders", properties=connection_properties)
+order_items_df = spark.read.jdbc(url=jdbc_url, table="order_items", properties=connection_properties)
+order_history_df = spark.read.jdbc(url=jdbc_url, table="order_history", properties=connection_properties)
+
+# Step 1: Join `orders` and `order_items` on `order_id`
+orders_items_joined_df = orders_df.alias("o").join(
+    order_items_df.alias("oi"),
+    F.col("o.order_id") == F.col("oi.order_id"),
+    "inner"
+)
+
+# Step 2: Join `orders_items_joined_df` with `order_history` on `order_id`
+complete_orders_df = orders_items_joined_df.join(
+    order_history_df.alias("oh"),
+    F.col("o.order_id") == F.col("oh.id"),
+    "inner"
+)
+
+# Step 3: Select and rename columns
+result_df = complete_orders_df.select(
+    F.col("o.order_id"),
+    F.col("o.customer_id"),
+    F.col("o.order_date"),
+    F.col("o.total_amount"),
+    F.col("oi.product_id"),
+    F.col("oi.quantity"),
+    F.col("oi.price_per_unit"),
+    F.col("oh.order_value"),
+    F.col("oh.order_date").alias("history_order_date")
+)
+
+# Display the final result
+result_df.show()
+
+# Note: Ensure that the SparkSession is stopped if it was created in this script
+# spark.stop()
+```
+
+### Key Changes and Considerations:
+1. **Fully Qualified Column References:** Used aliases (`o`, `oi`, `oh`) for tables to ensure all column references are fully qualified, avoiding ambiguity.
+2. **Explicit Join Conditions:** Used explicit equality conditions for joins with fully qualified column names.
+3. **Result DataFrame:** The final output is stored in a variable named `result_df` as required.
+4. **SparkSession Management:** The SparkSession is created at the beginning and can be stopped at the end if necessary.
+
+This code should execute without the ambiguity error and provide the desired transformation output.
+
+
+================================================================================
+
+
+================================================================================
+PHASE: CODE_REVIEW
+TIMESTAMP: 2025-04-23T07:43:47.118019
+================================================================================
+
+PROMPT:
+
+    You are reviewing PySpark code for potential issues before execution.
+    
+    Original Request: "Show me all orders"
+    
+    Generated Code:
+    ```python
+    # Necessary imports
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+
+# SparkSession creation
+# spark = SparkSession.builder\
+#     .appName("PySpark Transformation")\
+#     .getOrCreate()
+
+# JDBC connection details
+jdbc_url = "jdbc:postgresql://host.docker.internal:5432/postgres"
+connection_properties = {
+    "user": "postgres",
+    "password": "postgres",
+    "driver": "org.postgresql.Driver"
+}
+
+# Load the necessary tables into DataFrames
+orders_df = spark.read.jdbc(url=jdbc_url, table="orders", properties=connection_properties)
+order_items_df = spark.read.jdbc(url=jdbc_url, table="order_items", properties=connection_properties)
+order_history_df = spark.read.jdbc(url=jdbc_url, table="order_history", properties=connection_properties)
+
+# Step 1: Join `orders` and `order_items` on `order_id`
+orders_items_joined_df = orders_df.alias("o").join(
+    order_items_df.alias("oi"),
+    F.col("o.order_id") == F.col("oi.order_id"),
+    "inner"
+)
+
+# Step 2: Join `orders_items_joined_df` with `order_history` on `order_id`
+complete_orders_df = orders_items_joined_df.join(
+    order_history_df.alias("oh"),
+    F.col("o.order_id") == F.col("oh.id"),
+    "inner"
+)
+
+# Step 3: Select and rename columns
+result_df = complete_orders_df.select(
+    F.col("o.order_id"),
+    F.col("o.customer_id"),
+    F.col("o.order_date"),
+    F.col("o.total_amount"),
+    F.col("oi.product_id"),
+    F.col("oi.quantity"),
+    F.col("oi.price_per_unit"),
+    F.col("oh.order_value"),
+    F.col("oh.order_date").alias("history_order_date")
+)
+
+# Display the final result
+result_df.show()
+
+# Note: Ensure that the SparkSession is stopped if it was created in this script
+# spark.stop()
+    ```
+    
+    Please review the code for the following issues:
+    1. Missing imports or required dependencies
+    2. Incorrect table or column references
+    3. Syntax errors in PySpark operations
+    4. Potential runtime errors (e.g., accessing non-existent columns)
+    5. Inefficient operations or optimization opportunities
+    6. Verify that the final result is stored in 'result_df'
+    
+    If issues are found, provide a corrected version of the code.
+    If no significant issues are found, respond with "PASS" followed by any minor suggestions.
+    
+    IMPORTANT: Make sure the final result is stored in a variable named 'result_df' as this will be used by the execution system.
+    If you provide a corrected version, ensure it's a complete, executable Python script, not just code fragments.
+    
+
+
+================================================================================
+
+
+================================================================================
+PHASE: CODE_REVIEW_RESPONSE
+TIMESTAMP: 2025-04-23T07:43:58.267200
+================================================================================
+
+PROMPT:
+
+
+RESPONSE:
+Upon reviewing the provided PySpark code, I have identified a few issues and areas for improvement:
+
+1. **SparkSession Initialization**: The SparkSession is commented out, which means the script will not execute unless the SparkSession is properly initialized.
+
+2. **Column Reference in Join**: In the second join operation, the column reference `F.col("o.order_id") == F.col("oh.id")` seems incorrect. It should likely be `F.col("o.order_id") == F.col("oh.order_id")` assuming `order_id` is the correct column to join on in `order_history_df`.
+
+3. **Unused Columns**: The column `F.col("oh.order_value")` is selected but not used in any meaningful way in the context of the original request "Show me all orders". Ensure that this column is necessary for the output.
+
+4. **Optimization**: Consider caching the DataFrame if it is used multiple times to improve performance, especially if the dataset is large.
+
+5. **Comment on SparkSession Stop**: The comment about stopping the SparkSession should be uncommented if the SparkSession is created in this script.
+
+Here is the corrected version of the code:
+
+```python
+# Necessary imports
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+
+# SparkSession creation
+spark = SparkSession.builder\
+    .appName("PySpark Transformation")\
+    .getOrCreate()
+
+# JDBC connection details
+jdbc_url = "jdbc:postgresql://host.docker.internal:5432/postgres"
+connection_properties = {
+    "user": "postgres",
+    "password": "postgres",
+    "driver": "org.postgresql.Driver"
+}
+
+# Load the necessary tables into DataFrames
+orders_df = spark.read.jdbc(url=jdbc_url, table="orders", properties=connection_properties)
+order_items_df = spark.read.jdbc(url=jdbc_url, table="order_items", properties=connection_properties)
+order_history_df = spark.read.jdbc(url=jdbc_url, table="order_history", properties=connection_properties)
+
+# Step 1: Join `orders` and `order_items` on `order_id`
+orders_items_joined_df = orders_df.alias("o").join(
+    order_items_df.alias("oi"),
+    F.col("o.order_id") == F.col("oi.order_id"),
+    "inner"
+)
+
+# Step 2: Join `orders_items_joined_df` with `order_history` on `order_id`
+complete_orders_df = orders_items_joined_df.join(
+    order_history_df.alias("oh"),
+    F.col("o.order_id") == F.col("oh.order_id"),  # Corrected column reference
+    "inner"
+)
+
+# Step 3: Select and rename columns
+result_df = complete_orders_df.select(
+    F.col("o.order_id"),
+    F.col("o.customer_id"),
+    F.col("o.order_date"),
+    F.col("o.total_amount"),
+    F.col("oi.product_id"),
+    F.col("oi.quantity"),
+    F.col("oi.price_per_unit"),
+    F.col("oh.order_value"),
+    F.col("oh.order_date").alias("history_order_date")
+)
+
+# Display the final result
+result_df.show()
+
+# Stop the SparkSession if it was created in this script
+spark.stop()
+```
+
+This corrected script ensures that the SparkSession is properly initialized and stopped, corrects the column reference in the join operation, and maintains the final result in the `result_df` variable. If the `order_value` column is not needed, you can remove it from the `select` statement.
+
+
+================================================================================
+
+
+================================================================================
+PHASE: FINAL_CODE
+TIMESTAMP: 2025-04-23T07:43:58.271457
+================================================================================
+
+PROMPT:
+
+
+RESPONSE:
+# Necessary imports
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+
+# SparkSession creation
+# spark = SparkSession.builder\
+#     .appName("PySpark Transformation")\
+#     .getOrCreate()
+
+# JDBC connection details
+jdbc_url = "jdbc:postgresql://host.docker.internal:5432/postgres"
+connection_properties = {
+    "user": "postgres",
+    "password": "postgres",
+    "driver": "org.postgresql.Driver"
+}
+
+# Load the necessary tables into DataFrames
+orders_df = spark.read.jdbc(url=jdbc_url, table="orders", properties=connection_properties)
+order_items_df = spark.read.jdbc(url=jdbc_url, table="order_items", properties=connection_properties)
+order_history_df = spark.read.jdbc(url=jdbc_url, table="order_history", properties=connection_properties)
+
+# Step 1: Join `orders` and `order_items` on `order_id`
+orders_items_joined_df = orders_df.alias("o").join(
+    order_items_df.alias("oi"),
+    F.col("o.order_id") == F.col("oi.order_id"),
+    "inner"
+)
+
+# Step 2: Join `orders_items_joined_df` with `order_history` on `order_id`
+complete_orders_df = orders_items_joined_df.join(
+    order_history_df.alias("oh"),
+    F.col("o.order_id") == F.col("oh.id"),
+    "inner"
+)
+
+# Step 3: Select and rename columns
+result_df = complete_orders_df.select(
+    F.col("o.order_id"),
+    F.col("o.customer_id"),
+    F.col("o.order_date"),
+    F.col("o.total_amount"),
+    F.col("oi.product_id"),
+    F.col("oi.quantity"),
+    F.col("oi.price_per_unit"),
+    F.col("oh.order_value"),
+    F.col("oh.order_date").alias("history_order_date")
+)
+
+# Display the final result
+result_df.show()
+
+# Note: Ensure that the SparkSession is stopped if it was created in this script
+# spark.stop()
+
+
+================================================================================
+

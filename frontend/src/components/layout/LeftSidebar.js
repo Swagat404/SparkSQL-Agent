@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Box, 
   Typography, 
@@ -16,7 +16,14 @@ import {
   Tooltip,
   Badge,
   TextField,
-  InputAdornment
+  InputAdornment,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Chip,
+  CircularProgress,
+  Button
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import HistoryIcon from '@mui/icons-material/History';
@@ -27,7 +34,15 @@ import SchemaIcon from '@mui/icons-material/Schema';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import SearchIcon from '@mui/icons-material/Search';
+import DatabaseIcon from '@mui/icons-material/Storage';
 import GlassCard from '../ui/GlassCard';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import ViewColumnIcon from '@mui/icons-material/ViewColumn';
+import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
+import EditIcon from '@mui/icons-material/Edit';
+import ViewListIcon from '@mui/icons-material/ViewList';
+import axios from 'axios';
 
 // Mock data for chat history
 const MOCK_CHAT_HISTORY = [
@@ -81,293 +96,423 @@ const StyledTab = styled(Tab)(({ theme }) => ({
   },
 }));
 
+// Styled database selector
+const DatabaseSelector = styled(Select)(({ theme }) => ({
+  '& .MuiSelect-select': {
+    padding: '8px 32px 8px 12px',
+    fontSize: '0.85rem',
+  },
+  '& .MuiOutlinedInput-notchedOutline': {
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  '&:hover .MuiOutlinedInput-notchedOutline': {
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+    borderColor: theme.palette.primary.main,
+  },
+  backgroundColor: 'rgba(30, 34, 48, 0.4)',
+}));
+
+// Styled components
+const SidebarContainer = styled(Box)(({ theme }) => ({
+  height: '100%',
+  overflow: 'auto',
+  display: 'flex',
+  flexDirection: 'column',
+  backgroundColor: 'rgba(18, 18, 24, 0.6)',
+  backdropFilter: 'blur(10px)',
+  borderRight: '1px solid rgba(255, 255, 255, 0.05)',
+}));
+
+const SidebarHeader = styled(Box)(({ theme }) => ({
+  padding: theme.spacing(2),
+  display: 'flex',
+  alignItems: 'center',
+  borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+}));
+
+const TabContainer = styled(Box)(({ theme }) => ({
+  display: 'flex',
+  borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+}));
+
+const SidebarTab = styled(Box)(({ theme, active }) => ({
+  flex: 1,
+  padding: theme.spacing(1.5),
+  textAlign: 'center',
+  cursor: 'pointer',
+  borderBottom: active ? '2px solid #18DCFF' : 'none',
+  '&:hover': {
+    backgroundColor: active ? 'transparent' : 'rgba(255, 255, 255, 0.03)',
+  },
+}));
+
+const SearchField = styled(TextField)(({ theme }) => ({
+  margin: theme.spacing(2),
+  '& .MuiOutlinedInput-root': {
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    borderRadius: theme.shape.borderRadius,
+    '& fieldset': {
+      borderColor: 'rgba(255, 255, 255, 0.1)',
+    },
+    '&:hover fieldset': {
+      borderColor: 'rgba(255, 255, 255, 0.2)',
+    },
+    '&.Mui-focused fieldset': {
+      borderColor: theme.palette.primary.main,
+    },
+  },
+}));
+
 /**
  * LeftSidebar Component
- * The sidebar containing chat history, schema explorer, and visual history
+ * The left sidebar containing database selection, schemas, and query history
  * 
  * @param {Object} props
- * @param {function} [props.onHistorySelect] - Callback when selecting chat history item
- * @param {function} [props.onSchemaSelect] - Callback when selecting schema item
- * @param {Object} [props.sx] - Additional MUI styling
+ * @param {function} props.onHistorySelect - Callback for selecting a history item
+ * @param {function} props.onSchemaSelect - Callback for selecting a schema item 
+ * @param {Array} props.connections - Available database connections
+ * @param {string} props.selectedConnection - ID of the selected connection
+ * @param {function} props.onConnectionSelect - Callback for selecting a connection
+ * @param {function} props.onAddConnection - Callback for adding a new connection
+ * @param {function} props.onEditConnection - Callback for editing a connection
  */
 const LeftSidebar = ({ 
   onHistorySelect,
   onSchemaSelect,
-  sx = {} 
+  connections = [],
+  selectedConnection,
+  onConnectionSelect,
+  onAddConnection,
+  onEditConnection
 }) => {
-  const [activeTab, setActiveTab] = useState(0);
-  const [expandedTable, setExpandedTable] = useState(null);
-  const [schemaFilter, setSchemaFilter] = useState('');
-
-  const handleTabChange = (event, newValue) => {
-    setActiveTab(newValue);
+  // State
+  const [activeTab, setActiveTab] = useState('schema');
+  const [expandedTables, setExpandedTables] = useState({});
+  const [searchQuery, setSearchQuery] = useState('');
+  const [tables, setTables] = useState([]);
+  const [columns, setColumns] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [historyItems] = useState([
+    { query: "Show me all orders", timestamp: "2023-04-10 14:30" },
+    { query: "What are the top selling products?", timestamp: "2023-04-10 13:15" },
+    { query: "Find customers who haven't ordered in 3 months", timestamp: "2023-04-09 16:45" }
+  ]);
+  
+  // Fetch schema data when selected connection changes
+  useEffect(() => {
+    if (selectedConnection) {
+      fetchSchema(selectedConnection);
+    }
+  }, [selectedConnection]);
+  
+  // Fetch schema data from the API
+  const fetchSchema = async (connectionId) => {
+    if (!connectionId) return;
+    
+    setLoading(true);
+    try {
+      const response = await axios.get(`/schema/${connectionId}`);
+      
+      if (response.data && response.data.tables) {
+        setTables(response.data.tables);
+        setColumns(response.data.columns || {});
+      }
+    } catch (error) {
+      console.error('Error fetching schema:', error);
+      
+      // For demo/development - use mock data if API fails
+      setTables(['customers', 'orders', 'products', 'order_items']);
+      setColumns({
+        'customers': ['customer_id', 'name', 'email', 'country'],
+        'orders': ['order_id', 'customer_id', 'order_date', 'total_amount', 'status'],
+        'products': ['product_id', 'name', 'category', 'price', 'stock'],
+        'order_items': ['item_id', 'order_id', 'product_id', 'quantity', 'price_per_unit']
+      });
+    } finally {
+      setLoading(false);
+    }
   };
-
-  const toggleTable = (tableName) => {
-    setExpandedTable(expandedTable === tableName ? null : tableName);
+  
+  // Toggle table expansion
+  const toggleTable = (table) => {
+    setExpandedTables(prev => ({
+      ...prev,
+      [table]: !prev[table]
+    }));
   };
-
-  // Filter schema tables and columns based on search term
-  const filteredSchema = MOCK_SCHEMA.filter(table => {
-    if (!schemaFilter) return true;
+  
+  // Filter tables and columns based on search query
+  const filteredTables = tables.filter(table => 
+    table.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+  
+  // Get filtered columns for a table
+  const getFilteredColumns = (table) => {
+    if (!columns[table]) return [];
     
-    const searchTerm = schemaFilter.toLowerCase();
-    
-    // Check if table name matches
-    if (table.name.toLowerCase().includes(searchTerm)) return true;
-    
-    // Check if any column matches
-    return table.columns.some(col => 
-      col.name.toLowerCase().includes(searchTerm)
+    return columns[table].filter(column =>
+      column.toLowerCase().includes(searchQuery.toLowerCase())
     );
-  });
+  };
+  
+  // Get active connection name
+  const getActiveConnectionName = () => {
+    const activeConn = connections.find(conn => conn.id === selectedConnection);
+    return activeConn ? `${activeConn.database} (${activeConn.type})` : 'Select Database';
+  };
 
   return (
-    <Box 
-      sx={{ 
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        ...sx
-      }}
-    >
-      {/* Header with Logo */}
-      <Box 
-        sx={{ 
-          p: 2, 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'center',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
-        }}
-      >
-        <Typography 
-          variant="h6" 
-          component="h1" 
-          sx={{ 
-            fontWeight: 700, 
-            fontFamily: '"Space Grotesk", sans-serif',
-            background: 'linear-gradient(90deg, #18DCFF 0%, #9D4EDD 100%)',
-            WebkitBackgroundClip: 'text',
-            backgroundClip: 'text',
-            color: 'transparent'
-          }}
-        >
-          SparkSQL Agent
-        </Typography>
-      </Box>
-      
-      {/* Navigation Tabs */}
-      <Tabs 
-        value={activeTab} 
-        onChange={handleTabChange}
-        variant="fullWidth" 
-        sx={{ 
-          borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
-          '& .MuiTabs-indicator': {
-            background: 'linear-gradient(90deg, #18DCFF 0%, #9D4EDD 100%)',
-            height: 3,
-          }
-        }}
-      >
-        <StyledTab icon={<HistoryIcon />} label="History" />
-        <StyledTab icon={<SchemaIcon />} label="Schema" />
-        <StyledTab icon={<BarChartIcon />} label="Visuals" />
-      </Tabs>
-      
-      {/* Tab Content */}
-      <Box sx={{ flexGrow: 1, overflow: 'auto', p: 2 }}>
-        {/* Chat History Tab */}
-        <Box hidden={activeTab !== 0} sx={{ height: '100%' }}>
-          {MOCK_CHAT_HISTORY.length > 0 ? (
-            <List sx={{ p: 0 }}>
-              {MOCK_CHAT_HISTORY.map((item) => (
-                <GlassCard 
-                  key={item.id}
-                  intensity="light"
-                  sx={{ mb: 2, p: 2 }}
-                  onClick={() => onHistorySelect && onHistorySelect(item)}
-                >
-                  <Typography variant="body2" noWrap sx={{ fontWeight: 500 }}>
-                    {item.query}
-                  </Typography>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1, alignItems: 'center' }}>
-                    <Typography variant="caption" color="text.secondary">
-                      {item.timestamp}
-                    </Typography>
-                    <Badge 
-                      badgeContent={item.resultCount} 
-                      color="primary"
-                      sx={{ '& .MuiBadge-badge': { fontSize: '0.7rem' } }}
-                    >
-                      <TableChartIcon fontSize="small" sx={{ color: 'text.secondary' }} />
-                    </Badge>
-                  </Box>
-                </GlassCard>
-              ))}
-            </List>
-          ) : (
-            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
-              <Typography color="text.secondary">No history yet</Typography>
-            </Box>
-          )}
-        </Box>
-        
-        {/* Schema Explorer Tab */}
-        <Box hidden={activeTab !== 1} sx={{ height: '100%' }}>
-          <TextField
-            placeholder="Search tables and columns..."
-            size="small"
-            fullWidth
-            value={schemaFilter}
-            onChange={(e) => setSchemaFilter(e.target.value)}
-            sx={{ mb: 2 }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon fontSize="small" />
-                </InputAdornment>
-              ),
-            }}
-          />
-          
-          {filteredSchema.length > 0 ? (
-            <List 
-              sx={{ 
-                p: 0,
-                '& .MuiListItemButton-root': {
-                  borderRadius: 1,
-                  mb: 0.5,
+    <SidebarContainer>
+      {/* Database Selection Header */}
+      <SidebarHeader>
+        <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+          <ViewListIcon sx={{ mr: 1, color: 'primary.main' }} />
+          <FormControl fullWidth size="small">
+            <DatabaseSelector
+              value={selectedConnection || ''}
+              onChange={(e) => onConnectionSelect(e.target.value)}
+              displayEmpty
+              startAdornment={
+                <Box component="span" sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
+                  <StorageIcon fontSize="small" sx={{ color: 'primary.main' }} />
+                </Box>
+              }
+              renderValue={(selected) => {
+                if (!selected) {
+                  return <Typography variant="body2" color="text.secondary">Select Database</Typography>;
                 }
+                return getActiveConnectionName();
               }}
             >
-              {filteredSchema.map((table) => (
-                <React.Fragment key={table.name}>
-                  <ListItemButton
-                    onClick={() => toggleTable(table.name)}
-                    sx={{
-                      backgroundColor: 'rgba(30, 34, 48, 0.4)',
-                      '&:hover': {
-                        backgroundColor: 'rgba(30, 34, 48, 0.6)',
-                      },
-                    }}
-                  >
-                    <ListItemIcon sx={{ minWidth: 36 }}>
-                      {table.icon}
-                    </ListItemIcon>
-                    <ListItemText 
-                      primary={table.name} 
-                      primaryTypographyProps={{ 
-                        fontWeight: 500,
-                        fontFamily: '"JetBrains Mono", monospace',
-                        fontSize: '0.875rem'
-                      }} 
-                    />
-                    {expandedTable === table.name ? 
-                      <KeyboardArrowUpIcon fontSize="small" /> : 
-                      <KeyboardArrowDownIcon fontSize="small" />
-                    }
-                  </ListItemButton>
-                  
-                  <Collapse in={expandedTable === table.name} timeout="auto" unmountOnExit>
-                    <List component="div" disablePadding dense>
-                      {table.columns.map((column) => (
-                        <ListItemButton 
-                          key={column.name}
-                          sx={{ pl: 4 }}
-                          onClick={() => onSchemaSelect && onSchemaSelect(table.name, column.name)}
-                        >
-                          <ListItemText 
-                            primary={
-                              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <Typography 
-                                  variant="body2" 
-                                  fontFamily={'"JetBrains Mono", monospace'}
-                                  sx={{ 
-                                    color: column.primary ? 'primary.main' : 
-                                          column.foreign ? 'secondary.main' : 'text.primary',
-                                    fontWeight: column.primary || column.foreign ? 500 : 400,
-                                  }}
-                                >
-                                  {column.name}
-                                </Typography>
-                                <Typography 
-                                  variant="caption" 
-                                  fontFamily={'"JetBrains Mono", monospace'}
-                                  color="text.secondary"
-                                >
-                                  {column.type}
-                                </Typography>
-                              </Box>
-                            }
-                          />
-                        </ListItemButton>
-                      ))}
-                    </List>
-                  </Collapse>
-                </React.Fragment>
+              {connections.map((conn) => (
+                <MenuItem key={conn.id} value={conn.id}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', justifyContent: 'space-between' }}>
+                    <Typography variant="body2">{conn.database}</Typography>
+                    <Typography variant="caption" color="text.secondary">{conn.type}</Typography>
+                  </Box>
+                </MenuItem>
               ))}
-            </List>
-          ) : (
-            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 'calc(100% - 40px)' }}>
-              <Typography color="text.secondary">No tables found</Typography>
-            </Box>
-          )}
+              
+              <Divider sx={{ my: 1 }} />
+              
+              <MenuItem onClick={onAddConnection}>
+                <ListItemIcon>
+                  <AddCircleOutlineIcon fontSize="small" />
+                </ListItemIcon>
+                <Typography variant="body2">Add New Connection</Typography>
+              </MenuItem>
+              
+              {selectedConnection && (
+                <MenuItem 
+                  onClick={() => {
+                    const conn = connections.find(c => c.id === selectedConnection);
+                    if (conn) onEditConnection(conn);
+                  }}
+                >
+                  <ListItemIcon>
+                    <EditIcon fontSize="small" />
+                  </ListItemIcon>
+                  <Typography variant="body2">Edit Connection</Typography>
+                </MenuItem>
+              )}
+            </DatabaseSelector>
+          </FormControl>
         </Box>
-        
-        {/* Visual History Tab */}
-        <Box hidden={activeTab !== 2} sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <GlassCard intensity="light" sx={{ p: 0, overflow: 'hidden' }}>
-            <Box sx={{ p: 1, borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
-              <Typography variant="caption" color="text.secondary">
-                Top Products by Revenue
-              </Typography>
-            </Box>
-            <Box sx={{ p: 0, height: 120, background: 'linear-gradient(180deg, rgba(24, 220, 255, 0.1) 0%, rgba(157, 78, 221, 0.1) 100%)' }}>
-              {/* Placeholder for chart thumbnail */}
-              <Box sx={{ height: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                <BarChartIcon sx={{ fontSize: 40, color: 'rgba(255, 255, 255, 0.3)' }} />
-              </Box>
-            </Box>
-          </GlassCard>
-          
-          <GlassCard intensity="light" sx={{ p: 0, overflow: 'hidden' }}>
-            <Box sx={{ p: 1, borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
-              <Typography variant="caption" color="text.secondary">
-                Monthly Sales Trend
-              </Typography>
-            </Box>
-            <Box sx={{ p: 0, height: 120, background: 'linear-gradient(180deg, rgba(24, 220, 255, 0.1) 0%, rgba(157, 78, 221, 0.1) 100%)' }}>
-              {/* Placeholder for chart thumbnail */}
-              <Box sx={{ height: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                <BarChartIcon sx={{ fontSize: 40, color: 'rgba(255, 255, 255, 0.3)' }} />
-              </Box>
-            </Box>
-          </GlassCard>
-        </Box>
-      </Box>
+      </SidebarHeader>
       
-      {/* User Profile */}
-      <Box 
-        sx={{ 
-          p: 2, 
-          borderTop: '1px solid rgba(255, 255, 255, 0.05)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1.5
+      {/* Tabs: History, Schema, Visuals */}
+      <TabContainer>
+        <SidebarTab 
+          active={activeTab === 'history'} 
+          onClick={() => setActiveTab('history')}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <HistoryIcon fontSize="small" sx={{ mr: 1 }} />
+            <Typography variant="body2">History</Typography>
+          </Box>
+        </SidebarTab>
+        
+        <SidebarTab 
+          active={activeTab === 'schema'} 
+          onClick={() => setActiveTab('schema')}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <SchemaIcon fontSize="small" sx={{ mr: 1 }} />
+            <Typography variant="body2">Schema</Typography>
+          </Box>
+        </SidebarTab>
+        
+        <SidebarTab 
+          active={activeTab === 'visuals'} 
+          onClick={() => setActiveTab('visuals')}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <BarChartIcon fontSize="small" sx={{ mr: 1 }} />
+            <Typography variant="body2">Visuals</Typography>
+          </Box>
+        </SidebarTab>
+      </TabContainer>
+      
+      {/* Search Field */}
+      <SearchField
+        size="small"
+        placeholder={
+          activeTab === 'schema' 
+            ? "Search tables and columns" 
+            : activeTab === 'history'
+              ? "Search query history"
+              : "Search visualizations"
+        }
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        InputProps={{
+          startAdornment: (
+            <InputAdornment position="start">
+              <SearchIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+            </InputAdornment>
+          ),
         }}
-      >
-        <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}>U</Avatar>
-        <Box sx={{ flexGrow: 1 }}>
-          <Typography variant="body2" sx={{ fontWeight: 500 }}>
-            User
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            user@example.com
-          </Typography>
-        </Box>
+      />
+      
+      {/* Content based on active tab */}
+      <Box sx={{ flexGrow: 1, overflow: 'auto' }}>
+        {/* Schema Tab */}
+        {activeTab === 'schema' && (
+          <Box>
+            {loading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
+                <CircularProgress size={30} />
+              </Box>
+            ) : selectedConnection ? (
+              tables.length > 0 ? (
+                <List disablePadding>
+                  {filteredTables.map((table) => (
+                    <React.Fragment key={table}>
+                      <ListItem 
+                        button 
+                        onClick={() => toggleTable(table)}
+                        sx={{
+                          py: 1,
+                          pl: 2,
+                          pr: 1,
+                          borderLeft: expandedTables[table] ? '3px solid #18DCFF' : '3px solid transparent',
+                          bgcolor: expandedTables[table] ? 'rgba(24, 220, 255, 0.05)' : 'transparent',
+                        }}
+                      >
+                        <ListItemIcon sx={{ minWidth: 36 }}>
+                          <TableChartIcon fontSize="small" />
+                        </ListItemIcon>
+                        <ListItemText 
+                          primary={table} 
+                          primaryTypographyProps={{ 
+                            variant: 'body2',
+                            sx: { fontWeight: expandedTables[table] ? 600 : 400 }
+                          }} 
+                        />
+                        {expandedTables[table] ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                      </ListItem>
+                      
+                      <Collapse in={expandedTables[table]} timeout="auto" unmountOnExit>
+                        <List disablePadding>
+                          {getFilteredColumns(table).map((column) => (
+                            <ListItem 
+                              button
+                              key={`${table}.${column}`}
+                              sx={{ 
+                                py: 0.5, 
+                                pl: 6, 
+                                '&:hover': {
+                                  bgcolor: 'rgba(255, 255, 255, 0.05)',
+                                }
+                              }}
+                              onClick={() => onSchemaSelect && onSchemaSelect(table, column)}
+                            >
+                              <ListItemIcon sx={{ minWidth: 24 }}>
+                                <ViewColumnIcon fontSize="small" />
+                              </ListItemIcon>
+                              <ListItemText 
+                                primary={column} 
+                                primaryTypographyProps={{ variant: 'body2' }} 
+                              />
+                            </ListItem>
+                          ))}
+                        </List>
+                      </Collapse>
+                    </React.Fragment>
+                  ))}
+                </List>
+              ) : (
+                <Box sx={{ textAlign: 'center', mt: 4, px: 2 }}>
+                  <Typography color="text.secondary" variant="body2">
+                    No tables found in this database
+                  </Typography>
+                </Box>
+              )
+            ) : (
+              <Box sx={{ textAlign: 'center', mt: 4, px: 2 }}>
+                <Typography color="text.secondary" variant="body2">
+                  Select a database to view schema
+                </Typography>
+                <Button
+                  startIcon={<AddCircleOutlineIcon />}
+                  onClick={onAddConnection}
+                  sx={{ mt: 2 }}
+                  size="small"
+                >
+                  Add Connection
+                </Button>
+              </Box>
+            )}
+          </Box>
+        )}
+        
+        {/* History Tab */}
+        {activeTab === 'history' && (
+          <List disablePadding>
+            {historyItems
+              .filter(item => item.query.toLowerCase().includes(searchQuery.toLowerCase()))
+              .map((item, index) => (
+                <ListItem 
+                  button 
+                  key={index}
+                  onClick={() => onHistorySelect && onHistorySelect(item)}
+                  sx={{ 
+                    py: 1.5,
+                    borderBottom: '1px solid rgba(255, 255, 255, 0.03)',
+                    '&:hover': {
+                      bgcolor: 'rgba(255, 255, 255, 0.05)',
+                    }
+                  }}
+                >
+                  <ListItemIcon sx={{ minWidth: 36 }}>
+                    <HistoryIcon fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText 
+                    primary={item.query} 
+                    secondary={item.timestamp}
+                    primaryTypographyProps={{ variant: 'body2' }}
+                    secondaryTypographyProps={{ variant: 'caption' }}
+                  />
+                </ListItem>
+              ))}
+          </List>
+        )}
+        
+        {/* Visuals Tab */}
+        {activeTab === 'visuals' && (
+          <Box sx={{ textAlign: 'center', mt: 4, px: 2 }}>
+            <Typography color="text.secondary" variant="body2">
+              Run queries to generate visualizations
+            </Typography>
+            <Box sx={{ mt: 2 }}>
+              <BarChartIcon sx={{ fontSize: 48, color: 'text.disabled' }} />
+            </Box>
+          </Box>
+        )}
       </Box>
-    </Box>
+    </SidebarContainer>
   );
 };
 

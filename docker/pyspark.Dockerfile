@@ -11,7 +11,8 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Set JAVA_HOME
-ENV JAVA_HOME /usr/lib/jvm/java-default-java
+ENV JAVA_HOME /usr/lib/jvm/default-java
+ENV PATH=$PATH:$JAVA_HOME/bin
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \

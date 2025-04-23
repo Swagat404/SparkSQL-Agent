@@ -58,12 +58,18 @@ const CHART_COLORS = ['#18DCFF', '#9D4EDD', '#3BCBB0', '#FFC857', '#FF5A5A'];
  * @param {Array} props.data - Query result data
  * @param {boolean} [props.loading=false] - Whether data is loading
  * @param {number} [props.executionTime=0] - Query execution time in seconds
+ * @param {number} [props.apiExecutionTime=null] - Total API execution time in seconds
+ * @param {number} [props.attempts=1] - Number of attempts made by the agent
+ * @param {string} [props.generatedCode=''] - Generated code for the query
  * @param {Object} [props.sx] - Additional MUI styling
  */
 const RightPanel = ({ 
   data = [],
   loading = false,
   executionTime = 0,
+  apiExecutionTime = null,
+  attempts = 1,
+  generatedCode = '',
   sx = {} 
 }) => {
   const [activeTab, setActiveTab] = useState(0);
@@ -240,6 +246,18 @@ const RightPanel = ({
     }
   };
   
+  // Format execution time display with attempts if needed
+  const getExecutionTimeDisplay = () => {
+    const queryTime = executionTime ? executionTime.toFixed(3) : '0.000';
+    const apiTime = apiExecutionTime ? apiExecutionTime.toFixed(3) : queryTime;
+    
+    if (attempts > 1 && apiTime !== queryTime) {
+      return `${data.length} rows • ${queryTime}s (${attempts} attempts, total: ${apiTime}s)`;
+    } else {
+      return `${data.length} rows • ${queryTime}s`;
+    }
+  };
+  
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', ...sx }}>
       {/* Header */}
@@ -256,7 +274,7 @@ const RightPanel = ({
         
         {data.length > 0 && !loading && (
           <Typography variant="caption" color="text.secondary">
-            {data.length} rows • {executionTime.toFixed(3)}s
+            {getExecutionTimeDisplay()}
           </Typography>
         )}
       </Box>

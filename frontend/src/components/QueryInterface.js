@@ -19,6 +19,8 @@ function QueryInterface() {
   const [result, setResult] = useState([]);
   const [generatedCode, setGeneratedCode] = useState('');
   const [executionTime, setExecutionTime] = useState(0);
+  const [apiExecutionTime, setApiExecutionTime] = useState(0);
+  const [attempts, setAttempts] = useState(1);
   const [selectedConnection, setSelectedConnection] = useState('');
   const [connections, setConnections] = useState([]);
   const [usingMockData, setUsingMockData] = useState(false);
@@ -28,6 +30,111 @@ function QueryInterface() {
   const [processSteps, setProcessSteps] = useState([]);
   const [agentPhases, setAgentPhases] = useState([]);
   const [alert, setAlert] = useState({ show: false, message: '', severity: 'info' });
+  const [compilationSessionId, setCompilationSessionId] = useState(null);
+  const [wsConnection, setWsConnection] = useState(null);
+  
+  // Function to establish WebSocket connection for real-time phase updates
+  const connectToPhaseWebSocket = (sessionId) => {
+    if (!sessionId) return;
+    
+    // Close existing connection if any
+    if (wsConnection) {
+      wsConnection.close();
+    }
+    
+    const wsUrl = `ws://localhost:8000/ws/phases/${sessionId}`;
+    console.log(`Connecting to WebSocket: ${wsUrl}`);
+    
+    try {
+      const ws = new WebSocket(wsUrl);
+      
+      ws.onopen = () => {
+        console.log(`WebSocket connection established for session: ${sessionId}`);
+        setWsConnection(ws);
+        
+        // Send initial ping to request current phase status
+        ws.send('ping');
+      };
+      
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('WebSocket message received:', data);
+          
+          if (data.phases && Array.isArray(data.phases)) {
+            // Make sure each phase has id, name, status, and thinking fields
+            const normalizedPhases = data.phases.map(phase => ({
+              id: phase.id || 'unknown',
+              name: phase.name || 'Unknown Phase',
+              status: phase.status || 'pending',
+              thinking: phase.thinking || '',
+              order: phase.order || 0
+            }));
+            
+            // Sort phases by their order to ensure correct display
+            normalizedPhases.sort((a, b) => a.order - b.order);
+            
+            // Update agent phases with real-time data
+            setAgentPhases(normalizedPhases);
+            
+            // If any phase is in progress, the system is still loading
+            const stillProcessing = normalizedPhases.some(phase => phase.status === 'in_progress');
+            if (!stillProcessing && loading) {
+              // All phases are complete or failed, done loading
+              setLoading(false);
+            }
+          }
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error);
+        }
+      };
+      
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        setAlert({
+          show: true,
+          message: 'WebSocket connection error. Phase updates may not be real-time.',
+          severity: 'warning'
+        });
+      };
+      
+      ws.onclose = (event) => {
+        console.log(`WebSocket connection closed: ${event.code} ${event.reason}`);
+        // Handle phases from response data if WebSocket fails
+        setWsConnection(null);
+        
+        // If we're still loading, we should stop since the connection is closed
+        if (loading) {
+          setLoading(false);
+        }
+      };
+      
+      // Set up ping interval to keep connection alive
+      const pingInterval = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send('ping');
+        }
+      }, 30000); // every 30 seconds
+      
+      // Clean up on unmount
+      return () => {
+        clearInterval(pingInterval);
+        if (ws) ws.close();
+      };
+    } catch (error) {
+      console.error('Error creating WebSocket connection:', error);
+      // Fall back to using the phases from the API response
+    }
+  };
+  
+  // Clean up WebSocket on component unmount
+  useEffect(() => {
+    return () => {
+      if (wsConnection) {
+        wsConnection.close();
+      }
+    };
+  }, [wsConnection]);
   
   // Fetch connections on component mount
   useEffect(() => {
@@ -115,22 +222,47 @@ function QueryInterface() {
       
       // Process response
       if (response.data) {
-        setResult(response.data.result || []);
+        setResult(response.data.results || []);
         setGeneratedCode(response.data.generated_code || '');
-        setExecutionTime(response.data.execution_time || 0);
+        setExecutionTime(response.data.executionTime || 0);
+        setApiExecutionTime(response.data.apiExecutionTime || 0);
+        setAttempts(response.data.attempts || 1);
         
         // Add system message about query execution
-        const resultCount = response.data.result ? response.data.result.length : 0;
-        const executionTime = response.data.execution_time ? response.data.execution_time.toFixed(3) : '0.000';
+        const resultCount = response.data.results ? response.data.results.length : 0;
+        
+        // Use the actual query execution time for the message
+        const queryExecTime = response.data.executionTime 
+          ? response.data.executionTime.toFixed(3) 
+          : '0.000';
+          
+        // Get total API execution time
+        const apiExecTime = response.data.apiExecutionTime
+          ? response.data.apiExecutionTime.toFixed(3)
+          : queryExecTime;
+          
+        // Show both times if they're different
+        let executionMessage = '';
+        if (response.data.attempts && response.data.attempts > 1) {
+          executionMessage = `Query executed successfully in ${queryExecTime}s after ${response.data.attempts} attempts (total time: ${apiExecTime}s). Found ${resultCount} records.`;
+        } else {
+          executionMessage = `Query executed successfully in ${queryExecTime}s. Found ${resultCount} records.`;
+        }
         
         setMessages(prev => [...prev, { 
           sender: 'system', 
-          content: `Query executed successfully in ${executionTime}s. Found ${resultCount} records.`
+          content: executionMessage
         }]);
         
+        // Store compilation session ID and connect to WebSocket for real-time updates
+        if (response.data.compilationSessionId) {
+          setCompilationSessionId(response.data.compilationSessionId);
+          connectToPhaseWebSocket(response.data.compilationSessionId);
+        }
+        
         // Handle agent phases if provided
-        if (response.data.agent_phases && response.data.agent_phases.length > 0) {
-          setAgentPhases(response.data.agent_phases);
+        if (response.data.agentPhases && response.data.agentPhases.length > 0) {
+          setAgentPhases(response.data.agentPhases);
         }
         
         // If there's AI thinking/response included
@@ -292,6 +424,42 @@ function QueryInterface() {
     setAlert({ ...alert, show: false });
   };
 
+  // Handle database selection from the chat panel
+  const handleConnectionSelectFromChat = (connectionId) => {
+    if (connectionId !== selectedConnection) {
+      setSelectedConnection(connectionId);
+      // Add system message about context switch
+      const newConnection = connections.find(conn => conn.id === connectionId);
+      if (newConnection) {
+        setMessages(prev => [...prev, { 
+          sender: 'system', 
+          content: `Switched database context to "${newConnection.database}"`,
+          isContextSwitch: true
+        }]);
+      }
+    }
+  };
+  
+  // Handle starting a new chat session
+  const handleNewSession = () => {
+    // Reset all chat state but maintain connection
+    setMessages([]);
+    setQuery('');
+    setResult([]);
+    setGeneratedCode('');
+    setProcessSteps([]);
+    setAgentPhases([]);
+    setExecutionTime(0);
+    setApiExecutionTime(0);
+    setAttempts(1);
+    
+    setAlert({
+      show: true,
+      message: 'Started a new chat session',
+      severity: 'info'
+    });
+  };
+
   return (
     <>
       <AppLayout
@@ -303,7 +471,7 @@ function QueryInterface() {
             }}
             connections={connections}
             selectedConnection={selectedConnection}
-            onConnectionSelect={id => setSelectedConnection(id)}
+            onConnectionSelect={handleConnectionSelectFromChat}
             onAddConnection={() => handleOpenConnectionModal()}
             onEditConnection={conn => handleOpenConnectionModal(conn)}
           />
@@ -317,6 +485,10 @@ function QueryInterface() {
             query={query}
             setQuery={setQuery}
             agentPhases={agentPhases}
+            activeConnection={connections.find(conn => conn.id === selectedConnection) || null}
+            connections={connections}
+            onConnectionSelect={handleConnectionSelectFromChat}
+            onNewSession={handleNewSession}
           />
         }
         rightPanel={
@@ -324,6 +496,8 @@ function QueryInterface() {
             data={result}
             loading={loading}
             executionTime={executionTime}
+            apiExecutionTime={apiExecutionTime}
+            attempts={attempts}
             generatedCode={generatedCode}
           />
         }

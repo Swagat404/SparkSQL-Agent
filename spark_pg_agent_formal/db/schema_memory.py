@@ -23,274 +23,166 @@ class TableSchema(BaseModel):
     foreign_keys: Dict[str, Tuple[str, str]] = Field(default_factory=dict)  # column -> (referenced_table, referenced_column)
 
 
-class SchemaMemory:
-    """
-    Stores and provides access to database schema information.
-    Provides a unified schema representation for both PostgreSQL and MySQL.
-    """
+class SchemaMemory(BaseModel):
+    """Memory system for tracking database schema information"""
     
-    def __init__(self):
-        """Initialize the schema memory."""
-        self.table_schemas = {}  # Dict[table_name, column_list]
-        self.relationships = []  # List of foreign key relationships
-        self.indexes = []  # List of indexes
+    # Store table schemas by name
+    tables: Dict[str, TableSchema] = Field(default_factory=dict)
     
-    def add_table_schema(self, table_name: str, columns: List[Dict[str, Any]]) -> None:
+    def add_table_schema(self, table_schema: TableSchema) -> None:
         """
         Add a table schema to memory.
         
         Args:
+            table_schema: The table schema to add
+        """
+        self.tables[table_schema.name] = table_schema
+    
+    def get_table_schema(self, table_name: str) -> Optional[TableSchema]:
+        """
+        Get schema information for a table.
+        
+        Args:
             table_name: The name of the table
-            columns: List of column objects with metadata
+            
+        Returns:
+            TableSchema if the table exists, None otherwise
         """
-        self.table_schemas[table_name] = columns
-    
-    def add_relationship(
-        self, table: str, column: str, foreign_table: str, foreign_column: str
-    ) -> None:
-        """
-        Add a foreign key relationship to memory.
-        
-        Args:
-            table: The table with the foreign key
-            column: The column containing the foreign key
-            foreign_table: The referenced table
-            foreign_column: The referenced column
-        """
-        self.relationships.append({
-            "table": table,
-            "column": column,
-            "foreign_table": foreign_table,
-            "foreign_column": foreign_column
-        })
-    
-    def add_index(self, table: str, column: str, is_unique: bool = False) -> None:
-        """
-        Add an index to memory.
-        
-        Args:
-            table: The table with the index
-            column: The indexed column
-            is_unique: Whether the index is unique
-        """
-        self.indexes.append({
-            "table": table,
-            "column": column,
-            "is_unique": is_unique
-        })
+        return self.tables.get(table_name)
     
     def get_all_table_names(self) -> List[str]:
-        """Get a list of all table names."""
-        return list(self.table_schemas.keys())
-    
-    def get_table_columns(self, table_name: str) -> List[Dict[str, Any]]:
         """
-        Get all columns for a specific table.
+        Get all table names in the schema.
+        
+        Returns:
+            List of table names
+        """
+        return list(self.tables.keys())
+    
+    def get_table_columns(self, table_name: str) -> List[str]:
+        """
+        Get column names for a table.
         
         Args:
             table_name: The name of the table
             
         Returns:
-            List of column objects with metadata
+            List of column names if the table exists, empty list otherwise
         """
-        return self.table_schemas.get(table_name, [])
+        table = self.get_table_schema(table_name)
+        if table:
+            return list(table.columns.keys())
+        return []
     
-    def get_column_names(self, table_name: str) -> List[str]:
+    def get_column_type(self, table_name: str, column_name: str) -> Optional[str]:
         """
-        Get all column names for a specific table.
-        
-        Args:
-            table_name: The name of the table
-            
-        Returns:
-            List of column names
-        """
-        columns = self.get_table_columns(table_name)
-        return [col["name"] for col in columns]
-    
-    def get_relationships_for_table(self, table_name: str) -> List[Dict[str, str]]:
-        """
-        Get all relationships where the given table is either the source or target.
-        
-        Args:
-            table_name: The name of the table
-            
-        Returns:
-            List of relationship objects
-        """
-        return [
-            rel for rel in self.relationships 
-            if rel["table"] == table_name or rel["foreign_table"] == table_name
-        ]
-    
-    def get_indexes_for_table(self, table_name: str) -> List[Dict[str, Any]]:
-        """
-        Get all indexes for a specific table.
-        
-        Args:
-            table_name: The name of the table
-            
-        Returns:
-            List of index objects
-        """
-        return [idx for idx in self.indexes if idx["table"] == table_name]
-    
-    def table_has_column(self, table_name: str, column_name: str) -> bool:
-        """
-        Check if a table has a specific column.
+        Get the data type of a column.
         
         Args:
             table_name: The name of the table
             column_name: The name of the column
             
         Returns:
-            True if the column exists in the table, False otherwise
+            Data type if the column exists, None otherwise
         """
-        columns = self.get_column_names(table_name)
-        return column_name in columns
-    
-    def get_column_data_type(self, table_name: str, column_name: str) -> Optional[str]:
-        """
-        Get the data type of a specific column.
-        
-        Args:
-            table_name: The name of the table
-            column_name: The name of the column
-            
-        Returns:
-            The data type of the column, or None if not found
-        """
-        columns = self.get_table_columns(table_name)
-        for col in columns:
-            if col["name"] == column_name:
-                return col["data_type"]
+        table = self.get_table_schema(table_name)
+        if table and column_name in table.columns:
+            return table.columns[column_name]
         return None
     
-    def get_related_tables(self, table_name: str) -> Set[str]:
+    def get_primary_keys(self, table_name: str) -> List[str]:
         """
-        Get all tables that are directly related to the given table.
+        Get primary keys for a table.
         
         Args:
             table_name: The name of the table
             
         Returns:
-            Set of related table names
+            List of primary key columns if the table exists, empty list otherwise
+        """
+        table = self.get_table_schema(table_name)
+        if table:
+            return table.primary_keys
+        return []
+    
+    def get_foreign_keys(self, table_name: str) -> Dict[str, Tuple[str, str]]:
+        """
+        Get foreign keys for a table.
+        
+        Args:
+            table_name: The name of the table
+            
+        Returns:
+            Dictionary mapping column names to (referenced_table, referenced_column) if the table exists,
+            empty dict otherwise
+        """
+        table = self.get_table_schema(table_name)
+        if table:
+            return table.foreign_keys
+        return {}
+    
+    def get_related_tables(self, table_name: str) -> List[str]:
+        """
+        Get tables related to the given table through foreign keys.
+        
+        Args:
+            table_name: The name of the table
+            
+        Returns:
+            List of related table names
         """
         related_tables = set()
-        for rel in self.relationships:
-            if rel["table"] == table_name:
-                related_tables.add(rel["foreign_table"])
-            elif rel["foreign_table"] == table_name:
-                related_tables.add(rel["table"])
-        return related_tables
+        
+        # Tables that this table references
+        table = self.get_table_schema(table_name)
+        if table:
+            for referenced_table, _ in table.foreign_keys.values():
+                related_tables.add(referenced_table)
+        
+        # Tables that reference this table
+        for other_table_name, other_table in self.tables.items():
+            for referenced_table, _ in other_table.foreign_keys.values():
+                if referenced_table == table_name:
+                    related_tables.add(other_table_name)
+        
+        # Return as list, excluding the original table
+        return [t for t in related_tables if t != table_name]
     
-    def get_schema_summary(self) -> str:
+    def to_dict(self) -> Dict[str, Any]:
         """
-        Get a human-readable summary of the entire schema.
+        Convert schema memory to a dictionary.
         
         Returns:
-            A string summarizing the schema
+            Dictionary representation of the schema memory
         """
-        summary = []
-        
-        # Add tables and columns
-        summary.append(f"Database contains {len(self.table_schemas)} tables:")
-        for table_name, columns in self.table_schemas.items():
-            column_str = ", ".join([f"{col['name']} ({col['data_type']})" for col in columns])
-            summary.append(f"- {table_name}: {column_str}")
-        
-        # Add relationships
-        if self.relationships:
-            summary.append("\nRelationships:")
-            for rel in self.relationships:
-                summary.append(
-                    f"- {rel['table']}.{rel['column']} -> "
-                    f"{rel['foreign_table']}.{rel['foreign_column']}"
-                )
-        
-        # Add indexes
-        if self.indexes:
-            summary.append("\nIndexes:")
-            for idx in self.indexes:
-                unique_str = "UNIQUE " if idx["is_unique"] else ""
-                summary.append(f"- {unique_str}INDEX on {idx['table']}.{idx['column']}")
-        
-        return "\n".join(summary)
-    
-    def get_spark_schema_mapping(self) -> Dict[str, List[Dict[str, Any]]]:
-        """
-        Get a mapping of table schemas in a format suitable for PySpark.
-        
-        Returns:
-            A dictionary mapping table names to column definitions for PySpark
-        """
-        spark_mapping = {}
-        
-        # Map SQL data types to PySpark data types
-        type_mapping = {
-            # PostgreSQL types
-            "integer": "IntegerType",
-            "bigint": "LongType",
-            "smallint": "ShortType",
-            "character varying": "StringType",
-            "varchar": "StringType",
-            "text": "StringType",
-            "timestamp without time zone": "TimestampType",
-            "timestamp with time zone": "TimestampType",
-            "date": "DateType",
-            "boolean": "BooleanType",
-            "numeric": "DecimalType",
-            "decimal": "DecimalType",
-            "real": "FloatType",
-            "double precision": "DoubleType",
-            "json": "StringType",
-            "jsonb": "StringType",
-            
-            # MySQL types
-            "int": "IntegerType",
-            "tinyint": "ShortType",
-            "bigint": "LongType",
-            "float": "FloatType",
-            "double": "DoubleType",
-            "char": "StringType",
-            "varchar": "StringType",
-            "tinytext": "StringType",
-            "text": "StringType",
-            "longtext": "StringType",
-            "datetime": "TimestampType",
-            "timestamp": "TimestampType",
-            "date": "DateType",
-            "time": "TimestampType",
-            "year": "IntegerType",
-            "enum": "StringType",
-            "set": "StringType",
-            "blob": "BinaryType",
-            "longblob": "BinaryType",
-            "mediumblob": "BinaryType",
-            "tinyblob": "BinaryType"
+        return {
+            "tables": {name: table.dict() for name, table in self.tables.items()}
         }
+    
+    def format_schema_for_prompt(self) -> str:
+        """
+        Format schema information for inclusion in a prompt.
         
-        for table_name, columns in self.table_schemas.items():
-            spark_columns = []
-            for col in columns:
-                # Get the mapped PySpark type or default to StringType
-                base_type = col["data_type"].lower()
-                spark_type = type_mapping.get(base_type, "StringType")
-                
-                # Handle decimal types with precision and scale
-                if base_type in ("numeric", "decimal"):
-                    # Default precision and scale if not specified
-                    precision = 38
-                    scale = 18
-                    
-                    spark_type = f"DecimalType({precision}, {scale})"
-                
-                spark_columns.append({
-                    "name": col["name"],
-                    "type": spark_type,
-                    "nullable": col["is_nullable"]
-                })
+        Returns:
+            Formatted schema information string
+        """
+        if not self.tables:
+            return "No schema information available."
+        
+        schema_str = "Database Schema:\n"
+        
+        for table_name, table in self.tables.items():
+            schema_str += f"Table: {table_name}\n"
+            schema_str += "  Columns:\n"
             
-            spark_mapping[table_name] = spark_columns
+            for col_name, col_type in table.columns.items():
+                pk_indicator = " (PK)" if col_name in table.primary_keys else ""
+                fk_info = ""
+                if col_name in table.foreign_keys:
+                    ref_table, ref_col = table.foreign_keys[col_name]
+                    fk_info = f" (FK -> {ref_table}.{ref_col})"
+                schema_str += f"    {col_name}: {col_type}{pk_indicator}{fk_info}\n"
+            
+            schema_str += "\n"
         
-        return spark_mapping 
+        return schema_str 

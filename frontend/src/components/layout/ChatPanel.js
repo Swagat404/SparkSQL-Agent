@@ -7,12 +7,19 @@ import {
   IconButton, 
   CircularProgress,
   Tooltip,
-  Divider
+  Divider,
+  Chip,
+  Menu,
+  MenuItem,
+  Select,
+  FormControl
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import SendIcon from '@mui/icons-material/Send';
 import MicIcon from '@mui/icons-material/Mic';
 import SettingsIcon from '@mui/icons-material/Settings';
+import DatabaseIcon from '@mui/icons-material/Storage';
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import { motion } from 'framer-motion';
 import GlassCard from '../ui/GlassCard';
 import ProcessStep from '../ui/ProcessStep';
@@ -54,6 +61,37 @@ const InputContainer = styled(Box)(({ theme }) => ({
   padding: theme.spacing(2),
 }));
 
+// Database context chip styling
+const DatabaseChip = styled(Chip)(({ theme }) => ({
+  height: 24,
+  fontSize: '0.75rem',
+  backgroundColor: 'rgba(24, 220, 255, 0.1)',
+  borderColor: 'rgba(24, 220, 255, 0.3)',
+  '& .MuiChip-label': { 
+    padding: '0 8px',
+    fontWeight: 500
+  }
+}));
+
+// Database selector styling
+const DatabaseSelector = styled(Select)(({ theme }) => ({
+  fontSize: '0.85rem',
+  backgroundColor: 'rgba(30, 34, 48, 0.4)',
+  borderRadius: theme.shape.borderRadius,
+  '& .MuiSelect-select': {
+    padding: '8px 32px 8px 12px',
+  },
+  '& .MuiOutlinedInput-notchedOutline': {
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  '&:hover .MuiOutlinedInput-notchedOutline': {
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+    borderColor: theme.palette.primary.main,
+  }
+}));
+
 /**
  * ChatPanel Component
  * The central panel containing the chat interface and process steps
@@ -66,6 +104,10 @@ const InputContainer = styled(Box)(({ theme }) => ({
  * @param {Array} [props.agentPhases=[]] - Agent execution phases
  * @param {string} props.query - Current query text
  * @param {function} props.setQuery - Function to update query text
+ * @param {Object} [props.activeConnection=null] - Currently active database connection
+ * @param {Array} [props.connections=[]] - Available database connections
+ * @param {function} [props.onConnectionSelect] - Callback when selecting a database connection
+ * @param {function} [props.onNewSession] - Callback to start a new chat session
  * @param {Object} [props.sx] - Additional MUI styling
  */
 const ChatPanel = ({ 
@@ -76,13 +118,34 @@ const ChatPanel = ({
   agentPhases = [],
   query = '',
   setQuery,
+  activeConnection = null,
+  connections = [],
+  onConnectionSelect,
+  onNewSession,
   sx = {} 
 }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [streamPosition, setStreamPosition] = useState(0);
+  const [dbSwitchMenuAnchor, setDbSwitchMenuAnchor] = useState(null);
   const messagesEndRef = useRef(null);
+  
+  // Track database context changes in the chat history
+  const [databaseContextChanges, setDatabaseContextChanges] = useState([]);
+  
+  // Update database context changes when activeConnection changes
+  useEffect(() => {
+    if (activeConnection && (!databaseContextChanges.length || 
+        databaseContextChanges[databaseContextChanges.length - 1].id !== activeConnection.id)) {
+      setDatabaseContextChanges(prev => [...prev, { 
+        id: activeConnection.id,
+        database: activeConnection.database,
+        type: activeConnection.type,
+        timestamp: new Date().toISOString()
+      }]);
+    }
+  }, [activeConnection]);
   
   // Auto scroll to bottom on new messages
   useEffect(() => {
@@ -121,7 +184,7 @@ const ChatPanel = ({
   
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (query.trim() && !loading) {
+    if (query.trim() && !loading && activeConnection) {
       onSubmitQuery(query);
     }
   };
@@ -130,92 +193,171 @@ const ChatPanel = ({
     setIsRecording(!isRecording);
     // TODO: Implement speech-to-text
   };
+  
+  const handleOpenDbSwitchMenu = (event) => {
+    setDbSwitchMenuAnchor(event.currentTarget);
+  };
+  
+  const handleCloseDbSwitchMenu = () => {
+    setDbSwitchMenuAnchor(null);
+  };
+  
+  const handleSwitchDatabase = (connectionId) => {
+    if (onConnectionSelect && connectionId !== activeConnection?.id) {
+      onConnectionSelect(connectionId);
+    }
+    handleCloseDbSwitchMenu();
+  };
 
   // Find AI thinking message
   const aiThinkingMessage = messages.find(m => m.sender === 'ai' && m.isThinking);
-
-  // Example process steps data based on attached compiler log
-  const exampleSteps = [
-    {
-      title: "Schema Analysis",
-      status: "completed",
-      explanation: "Analyzing the database schema to identify relevant tables and columns for the query.",
-      code: `{
-  "tables": ["orders", "customers"],
-  "columns": {
-    "orders": ["order_id", "customer_id", "order_date", "total_amount"],
-    "customers": ["customer_id", "name", "email"]
-  },
-  "joins": [
-    {
-      "left_table": "orders",
-      "left_column": "customer_id",
-      "right_table": "customers",
-      "right_column": "customer_id"
+  
+  // Get database context for a specific message index
+  const getDatabaseContextForMessage = (index) => {
+    if (!databaseContextChanges.length) return null;
+    
+    // Find the latest database context change before this message
+    for (let i = databaseContextChanges.length - 1; i >= 0; i--) {
+      const contextChange = databaseContextChanges[i];
+      // Check if this context applies to the message (simple approximation)
+      if (i * 2 <= index) {
+        return {
+          database: contextChange.database,
+          type: contextChange.type,
+          id: contextChange.id
+        };
+      }
     }
-  ],
-  "explanation": "To fulfill the request 'give me all orders', the primary table needed is 'orders'..."
-}`,
-      language: "json"
-    },
-    {
-      title: "Query Planning",
-      status: "completed",
-      explanation: "Designing an execution plan for transforming the data using PySpark.",
-      code: `### Execution Plan
-
-1. **Load the Necessary Tables:**
-   - Load the \`orders\` table into a DataFrame called \`orders_df\`.
-   - Load the \`customers\` table into a DataFrame called \`customers_df\`.
-
-2. **Select Relevant Columns:**
-   - From \`orders_df\`, select the columns: \`order_id\`, \`customer_id\`, \`order_date\`, and \`total_amount\`.
-   - From \`customers_df\`, select the columns: \`customer_id\`, \`name\`, and \`email\`.
-
-3. **Perform the Join Operation:**
-   - Join \`orders_df\` with \`customers_df\` on the \`customer_id\` column.`,
-      language: "markdown"
-    },
-    {
-      title: "Code Generation",
-      status: "completed",
-      explanation: "Generating PySpark code to execute the planned query.",
-      code: `# Necessary imports
-from pyspark.sql import SparkSession
-
-# JDBC connection details
-jdbc_url = "jdbc:postgresql://localhost:5432/postgres"
-connection_properties = {
-    "user": "postgres",
-    "password": "postgres",
-    "driver": "org.postgresql.Driver"
-}
-
-# Load the orders table into a DataFrame
-orders_df = spark.read.jdbc(url=jdbc_url, table="orders", properties=connection_properties)
-
-# Select relevant columns from the orders DataFrame
-all_orders_df = orders_df.select(
-    orders_df["order_id"],
-    orders_df["customer_id"],
-    orders_df["order_date"],
-    orders_df["total_amount"]
-)
-
-# Display all orders
-all_orders_df.show()`,
-      language: "python"
-    },
-    {
-      title: "Execution",
-      status: "completed",
-      explanation: "Executing the generated code against the database.",
-      code: ``
-    }
-  ];
+    
+    // Default to the first context if none matches
+    return {
+      database: databaseContextChanges[0].database,
+      type: databaseContextChanges[0].type,
+      id: databaseContextChanges[0].id
+    };
+  };
 
   return (
     <ChatContainer sx={sx}>
+      {/* Chat Header with Database Context */}
+      <Box 
+        sx={{ 
+          py: 1.5, 
+          px: 2, 
+          borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          backgroundColor: 'rgba(18, 18, 18, 0.3)',
+          backdropFilter: 'blur(8px)',
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <DatabaseIcon color="primary" fontSize="small" />
+          
+          {activeConnection ? (
+            <>
+              <Typography variant="body2" fontWeight={500}>
+                Connected to:
+              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="body2" fontWeight={600} color="primary.main">
+                  {activeConnection.database}
+                </Typography>
+                <Chip 
+                  label={activeConnection.type} 
+                  size="small"
+                  sx={{ 
+                    height: 20, 
+                    fontSize: '0.7rem',
+                    backgroundColor: 'rgba(24, 220, 255, 0.1)',
+                    borderColor: 'rgba(24, 220, 255, 0.3)',
+                    '& .MuiChip-label': { px: 1 }
+                  }} 
+                  variant="outlined"
+                />
+              </Box>
+            </>
+          ) : (
+            <Typography variant="body2" fontWeight={500} color="text.secondary">
+              Select a database to begin
+            </Typography>
+          )}
+        </Box>
+        
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          {connections.length > 0 && (
+            <>
+              <Tooltip title="Switch Database">
+                <Button 
+                  size="small"
+                  startIcon={<SwapHorizIcon />}
+                  onClick={handleOpenDbSwitchMenu}
+                  variant="outlined"
+                  sx={{ 
+                    fontSize: '0.75rem', 
+                    py: 0.5,
+                    backgroundColor: 'rgba(30, 34, 48, 0.4)',
+                  }}
+                >
+                  Switch Database
+                </Button>
+              </Tooltip>
+              <Menu
+                anchorEl={dbSwitchMenuAnchor}
+                open={Boolean(dbSwitchMenuAnchor)}
+                onClose={handleCloseDbSwitchMenu}
+                sx={{ 
+                  '& .MuiPaper-root': {
+                    backgroundColor: 'rgba(30, 34, 48, 0.95)',
+                    backdropFilter: 'blur(10px)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: 1,
+                    mt: 1
+                  }
+                }}
+              >
+                {connections.map(conn => (
+                  <MenuItem
+                    key={conn.id}
+                    selected={activeConnection?.id === conn.id}
+                    onClick={() => handleSwitchDatabase(conn.id)}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                        {conn.database}
+                      </Typography>
+                      <Chip 
+                        label={conn.type} 
+                        size="small"
+                        sx={{ 
+                          height: 18, 
+                          fontSize: '0.65rem',
+                          backgroundColor: 'rgba(24, 220, 255, 0.1)',
+                          borderColor: 'rgba(24, 220, 255, 0.3)',
+                        }} 
+                        variant="outlined"
+                      />
+                    </Box>
+                  </MenuItem>
+                ))}
+                
+                {onNewSession && (
+                  <>
+                    <Divider sx={{ my: 1 }} />
+                    <MenuItem onClick={onNewSession}>
+                      <Typography variant="body2" color="primary.main">
+                        + New Chat Session
+                      </Typography>
+                    </MenuItem>
+                  </>
+                )}
+              </Menu>
+            </>
+          )}
+        </Box>
+      </Box>
+      
       {/* Chat Messages */}
       <Box sx={{ 
         flexGrow: 1, 
@@ -240,38 +382,143 @@ all_orders_df.show()`,
               <span className="gradient-text">Chat with your data</span>
             </Typography>
             <Typography sx={{ mb: 3 }}>
-              Ask questions in plain English or write SQL queries to analyze your data.
+              {activeConnection 
+                ? `Ask questions about your ${activeConnection.database} database in plain English.`
+                : "Connect to a database to start asking questions in plain English."}
             </Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center' }}>
-              <Button 
-                variant="outlined"
-                size="small"
-                onClick={() => setQuery("Show me all orders")}
-              >
-                Show me all orders
-              </Button>
-              <Button 
-                variant="outlined"
-                size="small"
-                onClick={() => setQuery("What are the top 5 customers by total purchase amount?")}
-              >
-                Top 5 customers
-              </Button>
-              <Button 
-                variant="outlined"
-                size="small"
-                onClick={() => setQuery("SELECT * FROM orders LIMIT 10")}
-              >
-                SELECT * FROM orders
-              </Button>
-            </Box>
+            {activeConnection ? (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center' }}>
+                <Button 
+                  variant="outlined"
+                  size="small"
+                  onClick={() => setQuery("Show me all orders")}
+                >
+                  Show all orders
+                </Button>
+                <Button 
+                  variant="outlined"
+                  size="small"
+                  onClick={() => setQuery("What were the top selling products?")}
+                >
+                  Top selling products
+                </Button>
+                <Button 
+                  variant="outlined"
+                  size="small"
+                  onClick={() => setQuery("Find customers who haven't ordered in 3 months")}
+                >
+                  Inactive customers
+                </Button>
+              </Box>
+            ) : (
+              <>
+                <Typography color="text.secondary" variant="body2" sx={{ mb: 2 }}>
+                  Please select a database to continue
+                </Typography>
+                
+                {connections.length > 0 && (
+                  <FormControl variant="outlined" size="small" sx={{ minWidth: 200 }}>
+                    <DatabaseSelector
+                      value={activeConnection?.id || ''}
+                      onChange={(e) => onConnectionSelect && onConnectionSelect(e.target.value)}
+                      displayEmpty
+                      startAdornment={
+                        <Box component="span" sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
+                          <DatabaseIcon fontSize="small" sx={{ color: 'primary.main', mr: 0.5 }} />
+                        </Box>
+                      }
+                      renderValue={(selected) => {
+                        if (!selected) {
+                          return <Typography variant="body2" color="text.secondary">Select Database</Typography>;
+                        }
+                        const conn = connections.find(c => c.id === selected);
+                        return (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <Typography variant="body2" noWrap>
+                              {conn?.database || 'Unknown'} 
+                            </Typography>
+                            <Chip 
+                              label={conn?.type || ''} 
+                              size="small" 
+                              sx={{ 
+                                height: 18, 
+                                fontSize: '0.65rem',
+                                backgroundColor: 'rgba(24, 220, 255, 0.1)',
+                                borderColor: 'rgba(24, 220, 255, 0.3)',
+                              }} 
+                              variant="outlined"
+                            />
+                          </Box>
+                        );
+                      }}
+                    >
+                      {connections.map((conn) => (
+                        <MenuItem key={conn.id} value={conn.id}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', justifyContent: 'space-between' }}>
+                            <Typography variant="body2">{conn.database}</Typography>
+                            <Typography variant="caption" color="text.secondary">{conn.type}</Typography>
+                          </Box>
+                        </MenuItem>
+                      ))}
+                    </DatabaseSelector>
+                  </FormControl>
+                )}
+              </>
+            )}
           </GlassCard>
         )}
+        
+        {/* Display database context change messages */}
+        {databaseContextChanges.slice(0, -1).map((contextChange, index) => (
+          <Box 
+            key={`context-${index}`}
+            component={motion.div}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+            sx={{
+              display: 'flex',
+              justifyContent: 'center',
+              my: 2,
+              opacity: 0.8
+            }}
+          >
+            <Box sx={{
+              backgroundColor: 'rgba(30, 34, 48, 0.5)',
+              backdropFilter: 'blur(8px)',
+              borderRadius: 1,
+              py: 0.75,
+              px: 2,
+              border: '1px dashed rgba(255, 255, 255, 0.1)'
+            }}>
+              <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <DatabaseIcon fontSize="small" sx={{ fontSize: '0.9rem' }} />
+                Switched context to <strong>{contextChange.database}</strong>
+                <Chip 
+                  label={contextChange.type} 
+                  size="small"
+                  sx={{ 
+                    height: 16, 
+                    fontSize: '0.65rem',
+                    backgroundColor: 'rgba(24, 220, 255, 0.1)',
+                    borderColor: 'rgba(24, 220, 255, 0.3)',
+                    '& .MuiChip-label': { px: 0.5 }
+                  }} 
+                  variant="outlined"
+                />
+              </Typography>
+            </Box>
+          </Box>
+        ))}
         
         {/* Display messages */}
         {messages.map((message, index) => {
           // Skip AI thinking messages as they'll be shown as agent phases
           if (message.sender === 'ai' && message.isThinking) return null;
+          
+          // Get database context for this message
+          const dbContext = getDatabaseContextForMessage(index);
+          const isSystemMessage = message.sender === 'system';
           
           return (
             <MessageContainer 
@@ -282,8 +529,33 @@ all_orders_df.show()`,
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3 }}
             >
+              {/* Database context chip for non-system messages */}
+              {dbContext && message.sender === 'user' && (
+                <Box sx={{ 
+                  display: 'flex', 
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  mr: 1,
+                  mt: 1
+                }}>
+                  <DatabaseChip 
+                    label={dbContext.database}
+                    size="small"
+                    variant="outlined"
+                    color="primary"
+                  />
+                </Box>
+              )}
+              
               <MessageContent sender={message.sender}>
-                {message.content.startsWith('```') ? (
+                {/* System messages with result prefix */}
+                {isSystemMessage && message.content.includes("Query executed successfully") ? (
+                  <Typography>
+                    <Box component="span" sx={{ fontWeight: 600, color: 'primary.main' }}>
+                      [{dbContext?.database}]
+                    </Box> {message.content}
+                  </Typography>
+                ) : message.content.startsWith('```') ? (
                   <CodeBlock
                     code={message.content.replace(/```(\w+)?\n([\s\S]*?)```/g, '$2')}
                     language="sql"
@@ -292,6 +564,24 @@ all_orders_df.show()`,
                   <Typography>{message.content}</Typography>
                 )}
               </MessageContent>
+              
+              {/* Database context chip for AI messages */}
+              {dbContext && message.sender === 'ai' && (
+                <Box sx={{ 
+                  display: 'flex', 
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  ml: 1,
+                  mt: 1
+                }}>
+                  <DatabaseChip 
+                    label={dbContext.database}
+                    size="small"
+                    variant="outlined"
+                    color="primary"
+                  />
+                </Box>
+              )}
             </MessageContainer>
           );
         })}
@@ -308,15 +598,11 @@ all_orders_df.show()`,
             <AgentPhasesDisplay 
               phases={agentPhases.map(phase => ({
                 ...phase,
-                status: loading && phase === agentPhases[agentPhases.length - 1] 
-                  ? 'processing' 
-                  : 'completed'
+                // Keep the original phase status from backend
+                // We only use 'in_progress' status for streaming the current phase
+                isLiveStreaming: loading && phase.status === 'in_progress',
+                streamPosition: isStreaming && phase.status === 'in_progress' ? streamPosition : null
               }))}
-              isStreaming={isStreaming}
-              streamingPhase={isStreaming ? {
-                phase: agentPhases[agentPhases.length - 1].phase,
-                streamPosition: streamPosition
-              } : null}
             />
           </Box>
         )}
@@ -350,10 +636,12 @@ all_orders_df.show()`,
           <TextField
             fullWidth
             variant="outlined"
-            placeholder="Enter SQL query or ask a question..."
+            placeholder={activeConnection 
+              ? `Ask a question about ${activeConnection.database}...` 
+              : "Select a database to start..."}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            disabled={loading}
+            disabled={loading || !activeConnection}
             InputProps={{
               sx: {
                 pr: 1,
@@ -376,6 +664,7 @@ all_orders_df.show()`,
                 color={isRecording ? 'error' : 'primary'}
                 onClick={handleRecording}
                 sx={{ mr: 1 }}
+                disabled={!activeConnection}
               >
                 <MicIcon />
               </IconButton>
@@ -384,7 +673,7 @@ all_orders_df.show()`,
               variant="contained"
               color="primary"
               type="submit"
-              disabled={loading || !query.trim()}
+              disabled={loading || !query.trim() || !activeConnection}
               sx={{ 
                 minWidth: 0, 
                 width: '48px', 
